@@ -23,14 +23,18 @@ class Cox_cx(object):
         return self.dll.GetCorrectedTemp(byref(self.pfloat_lut), self.corrPara, int(ir_reading))
 
     def __init__(self,width,height,ip,port):
+        self.rgb_width = 1280
+        self.rgb_height = 720
+        self.scr_width = 1800
+        self.scr_height = 900
         self.init_cam_vari(width,height,ip,port)
         self.load_app_settings()
         self.fid = open('sharedmem.dat', "r+")
         self.map = mmap.mmap(self.fid.fileno(), 0)
         cv2.namedWindow('', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        self.disp_buff = np.empty((600, 1600, 3), dtype=np.uint8)
+        self.disp_buff = np.empty((self.scr_height, self.scr_width, 3), dtype=np.uint8)
         cv2.imshow('', self.disp_buff)
-        cv2.resizeWindow('', (1600,600))
+        cv2.resizeWindow('', (self.scr_width,self.scr_height))
 
     def init_cam_vari(self,width,height,ip,port):
         self.width = width
@@ -162,25 +166,26 @@ class Cox_cx(object):
             lb_ypos = np.array(y).max()
             im_8 = cv2.putText(im_8, '%.1f'%max_t, (lb_xpos,lb_ypos), self.font,
                         0.5, (255,255,255), 1, cv2.LINE_AA)
-        if alarm:
-            ts_str = datetime.now().strftime("%m%d%H%M%S")
-            cv2.imwrite(ts_str+'.jpg', im_8)
 
-        im_8 = cv2.resize(im_8, (800,600), interpolation=cv2.INTER_NEAREST)
+        im_8 = cv2.resize(im_8, (self.scr_width/2,self.scr_height), interpolation=cv2.INTER_NEAREST)
         cv2.rectangle(im_8, (10, 10), (440, 40), (128,128,128), cv2.FILLED)
         im_8 = cv2.putText(im_8, 'THD(+/-) %.2f  Emissivity(w/s)%.2f MAX %d'%(self.correct_temp(self.thd), 
                     self.corrPara.emissivity,
                     self.np_img_16.max()), 
                     (15, 30), self.font,
                    0.5, (255,255,255), 1, cv2.LINE_AA) 
-
-        npix = 1280*720*3
+        npix = self.rgb_width * self.rgb_height * 3
         rgb = np.frombuffer(self.map[0:npix], dtype=np.uint8)
-        rgb = rgb.reshape((720,1280,3))
-        rgb = cv2.resize(rgb, (800,600), interpolation=cv2.INTER_NEAREST)
+        rgb = rgb.reshape((self.rgb_height,self.rgb_width,3))
+        rgb = cv2.resize(rgb, (self.scr_width/2, self.scr_height), interpolation=cv2.INTER_NEAREST)
 
-        self.disp_buff[:,0:800,:]= im_8
-        self.disp_buff[:,800:,:] = rgb
+        self.disp_buff[:,0:self.scr_width/2,:]= im_8
+        self.disp_buff[:,self.scr_width/2:,:] = rgb
+
+        if alarm:
+            ts_str = datetime.now().strftime("%m%d%H%M%S")
+            cv2.imwrite(ts_str+'.jpg', self.disp_buff)
+
         cv2.imshow('', self.disp_buff)
 
         key = cv2.waitKey(100)

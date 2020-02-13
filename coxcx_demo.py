@@ -1,7 +1,7 @@
 import types_define as td
-#import ctypes
+import mmap
 from ctypes import *
-#from ctypes import wintypes
+import os
 import numpy as np
 import os
 import sys
@@ -23,8 +23,12 @@ class Cox_cx(object):
     def __init__(self,width,height,ip,port):
         self.init_cam_vari(width,height,ip,port)
         self.load_app_settings()
-        cv2.namedWindow('THERMAL', cv2.WINDOW_NORMAL)
-        cv2.startWindowThread()
+        self.fid = open(os.path.join('visconn', 'hello.txt'), "r+")
+        self.map = mmap.mmap(self.fid.fileno(), 0)
+        cv2.namedWindow('', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+        self.disp_buff = np.empty((600, 1600, 3), dtype=np.uint8)
+        cv2.imshow('', self.disp_buff)
+        cv2.resizeWindow('', (1600,600))
 
     def init_cam_vari(self,width,height,ip,port):
         self.width = width
@@ -160,7 +164,7 @@ class Cox_cx(object):
             ts_str = datetime.now().strftime("%m%d%H%M%S")
             cv2.imwrite(ts_str+'.jpg', im_8)
 
-        im_8 = cv2.resize(im_8, None, fx=3, fy=3, interpolation=cv2.INTER_NEAREST)
+        im_8 = cv2.resize(im_8, (800,600), interpolation=cv2.INTER_NEAREST)
         cv2.rectangle(im_8, (10, 10), (440, 40), (128,128,128), cv2.FILLED)
         im_8 = cv2.putText(im_8, 'THD(+/-) %.2f  Emissivity(w/s)%.2f MAX %d'%(self.correct_temp(self.thd), 
                     self.corrPara.emissivity,
@@ -168,7 +172,15 @@ class Cox_cx(object):
                     (15, 30), self.font,
                    0.5, (255,255,255), 1, cv2.LINE_AA) 
 
-        cv2.imshow("THERMAL", im_8)
+        npix = 1280*720*3
+        rgb = np.frombuffer(self.map[0:npix], dtype=np.uint8)
+        rgb = rgb.reshape((720,1280,3))
+        rgb = cv2.resize(rgb, (800,600), interpolation=cv2.INTER_NEAREST)
+
+        self.disp_buff[:,0:800,:]= im_8
+        self.disp_buff[:,800:,:] = rgb
+        cv2.imshow('', self.disp_buff)
+
         key = cv2.waitKey(100)
         if key & 0xff == ord('+'):
             self.thd += 10

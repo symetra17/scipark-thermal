@@ -2,6 +2,7 @@ import types_define as td
 import mmap
 from ctypes import *
 import os
+from os.path import join as opjoin
 import numpy as np
 import os
 import sys
@@ -14,6 +15,7 @@ import threading
 import struct
 import hikvision
 import multiprocessing as mp
+import psutil
 
 class Cox_cx(object):
 
@@ -45,7 +47,7 @@ class Cox_cx(object):
         self.lowBound = -1
         self.highBound = -1
         self.windowName = 'show'
-        dll_path = os.path.join('dll', 'ThermalCamDll.dll')
+        dll_path = opjoin('dll', 'ThermalCamDll.dll')
         self.dll = windll.LoadLibrary(dll_path)
         self.mHandle = wintypes.HANDLE()
         self.keepAlive = c_uint()
@@ -139,6 +141,8 @@ class Cox_cx(object):
         b_np_img[b_np_img <= self.thd] = 0
         b_np_img[b_np_img> self.thd] = 255
         b_np_img = b_np_img.astype(np.uint8)
+        b_np_img = cv2.dilate(b_np_img, cv2.getStructuringElement(cv2.MORPH_RECT, (15,15)))
+        
         countours,_ = cv2.findContours(b_np_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
         np_img_float = self.np_img_16.astype(np.float)
@@ -164,43 +168,55 @@ class Cox_cx(object):
                 y.append(pt[m][0][1])
             lb_xpos = np.array(x).max()
             lb_ypos = np.array(y).max()
+            cv2.rectangle(im_8, (lb_xpos, lb_ypos-12), (lb_xpos+35, lb_ypos+1), 
+                                                (128,128,128), cv2.FILLED)
             im_8 = cv2.putText(im_8, '%.1f'%max_t, (lb_xpos,lb_ypos), self.font,
                         0.5, (255,255,255), 1, cv2.LINE_AA)
 
-        im_8 = cv2.resize(im_8, (self.scr_width/2,self.scr_height), interpolation=cv2.INTER_NEAREST)
+        im_8 = cv2.resize(im_8, (self.scr_width/2,self.scr_height), 
+                                    interpolation=cv2.INTER_NEAREST)
         cv2.rectangle(im_8, (10, 10), (440, 40), (128,128,128), cv2.FILLED)
-        im_8 = cv2.putText(im_8, 'THD(+/-) %.2f  Emissivity(w/s)%.2f MAX %d'%(self.correct_temp(self.thd), 
+        cv2.putText(im_8, 'THD(+/-) %.2f  Emissivity(w/s)%.2f MAX %d'%(
+                    self.correct_temp(self.thd), 
                     self.corrPara.emissivity,
                     self.np_img_16.max()), 
-                    (15, 30), self.font,
-                   0.5, (255,255,255), 1, cv2.LINE_AA) 
+                    (15, 30), self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
         npix = self.rgb_width * self.rgb_height * 3
         rgb = np.frombuffer(self.map[0:npix], dtype=np.uint8)
         rgb = rgb.reshape((self.rgb_height,self.rgb_width,3))
-        rgb = cv2.resize(rgb, (self.scr_width/2, self.scr_height), interpolation=cv2.INTER_NEAREST)
+        rgb = cv2.resize(rgb, (self.scr_width/2, self.scr_height), 
+                                    interpolation=cv2.INTER_NEAREST)
 
         self.disp_buff[:,0:self.scr_width/2,:]= im_8
         self.disp_buff[:,self.scr_width/2:,:] = rgb
 
         if alarm:
-            ts_str = datetime.now().strftime("%m%d%H%M%S")
-            cv2.imwrite(ts_str+'.jpg', self.disp_buff)
+            hdd = psutil.disk_usage('/')
+            space_megabytes = hdd.free/(1024*1024)
+            if space_megabytes < 9000:
+                cv2.putText(self.disp_buff, 'Storage is full',
+                    (15, 100), self.font, 1, (0,255,255), 2, cv2.LINE_AA)
+            else:
+                ts_str = datetime.now().strftime("%y%m%d-%H%M%S-%f")
+                ts_str = ts_str[:-3]
+                cv2.imwrite(opjoin('record', ts_str+'.jpg'), self.disp_buff)
 
         cv2.imshow('', self.disp_buff)
-
         key = cv2.waitKey(100)
         if key & 0xff == ord('+'):
             self.thd += 10
             self.save_thd()
-        if key & 0xff == ord('-'):
+        elif key & 0xff == ord('-'):
             self.thd -= 10
             self.save_thd()
-        if key & 0xff == ord('w'):
+        elif key & 0xff == ord('w'):
             self.corrPara.emissivity += 0.01
             self.save_emissivity()
-        if key & 0xff == ord('s'):
+        elif key & 0xff == ord('s'):
             self.corrPara.emissivity -= 0.01
             self.save_emissivity()
+        elif key & 0xff == ord('q'):
+            pass
 
     def save_emissivity(self):
         fid=open('emissivity.cfg','w')
@@ -214,7 +230,8 @@ class Cox_cx(object):
 
     def requestCameraData(self):
         self.dll.SendCameraMessage.restype = c_short
-        self.dll.SendCameraMessage.argtypes = [wintypes.HANDLE, POINTER(c_uint), c_int,c_ushort,c_ushort]        
+        self.dll.SendCameraMessage.argtypes = [wintypes.HANDLE, POINTER(c_uint), 
+                                                        c_int,c_ushort,c_ushort]
         err = self.dll.SendCameraMessage(self.mHandle, byref(self.keepAlive),
                                 td.IRF_MESSAGE_TYPE_T._IRF_REQ_CAM_DATA.value,0,0)
         if err != 1:
@@ -222,14 +239,15 @@ class Cox_cx(object):
             return
         #request stream on_IRF_STREAM_ON
         err = self.dll.SendCameraMessage(self.mHandle, byref(self.keepAlive),
-                                                td.IRF_MESSAGE_TYPE_T._IRF_STREAM_ON.value,0,0)
+                                td.IRF_MESSAGE_TYPE_T._IRF_STREAM_ON.value,0,0)
         if err != 1:
             print("send stream on message fail errcode=%d"%(err))
         return err
     
     def setSize(self):
         self.dll.GetIRImages.restypes = c_short
-        self.dll.GetIRImages.argtypes = [wintypes.HANDLE, POINTER(c_uint), POINTER(td.IRF_IR_CAM_DATA_T)]
+        self.dll.GetIRImages.argtypes = [wintypes.HANDLE, POINTER(c_uint), 
+                                            POINTER(td.IRF_IR_CAM_DATA_T)]
         try:
             err = self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
             if err == 1:
@@ -262,7 +280,8 @@ class Cox_cx(object):
     
     def setNUC(self):
         self.dll.SendMessageToCamera.restype = c_short
-        self.dll.SendMessageToCamera.argtypes = [wintypes.HANDLE, POINTER(c_uint), c_int,c_ushort,c_ushort,c_ulong,c_ulong,c_ulong]
+        self.dll.SendMessageToCamera.argtypes = [wintypes.HANDLE, POINTER(c_uint), 
+                                    c_int,c_ushort,c_ushort,c_ulong,c_ulong,c_ulong]
         try:
             err = self.dll.SendMessageToCamera(self.mHandle, byref(self.keepAlive),
                                                   td.IRF_MESSAGE_TYPE_T._IRF_SET_CAM_DATA.value,
@@ -297,7 +316,10 @@ if __name__ == '__main__':
     buf = bytearray(1920*1080*3)
     fid.write(buf)
     fid.close()
-
+    try:
+        os.mkdir('record')
+    except:
+        pass
     rgb_proc = mp.Process(target=rgb_capture_process, args=(None,))
     rgb_proc.start()
 

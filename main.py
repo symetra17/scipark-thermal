@@ -200,7 +200,6 @@ class insight_thermal_analyzer(object):
         if True:
             hdd = psutil.disk_usage('/')
             space_megabytes = hdd.free/(1024*1024)
-            print space_megabytes
             if space_megabytes < 1000:
                 cv2.putText(self.disp_buff, 'Storage is full',
                     (15, 100), self.font, 1, (0,255,255), 2, cv2.LINE_AA)
@@ -216,7 +215,11 @@ class insight_thermal_analyzer(object):
                 if hour_dir != self.hour_dir:
                     self.hour_dir = hour_dir
                     try:
-                        os.mkdir(opjoin(dir, hour_dir))
+                        os.mkdir(opjoin('alarm', hour_dir))
+                    except:
+                        pass
+                    try:
+                        os.mkdir(opjoin('record', hour_dir))
                     except:
                         pass
                 cv2.imwrite(opjoin(dir, hour_dir, ts_str+'.jpg'), self.disp_buff)

@@ -17,16 +17,17 @@ import hikvision
 import multiprocessing as mp
 import psutil
 
-class Cox_cx(object):
+class insight_thermal_analyzer(object):
 
     def correct_temp(self, ir_reading):
         strchr = self.dll.GetCorrectedTemp
         strchr.restype = c_float
-        return self.dll.GetCorrectedTemp(byref(self.pfloat_lut), self.corrPara, int(ir_reading))
+        return self.dll.GetCorrectedTemp(byref(self.pfloat_lut), 
+                                    self.corrPara, int(ir_reading))
 
     def __init__(self,width,height,ip,port):
-        self.rgb_width = 1280
-        self.rgb_height = 720
+        self.rgb_width = 1920
+        self.rgb_height = 1080
         self.scr_width = 1800
         self.scr_height = 900
         self.init_cam_vari(width,height,ip,port)
@@ -37,6 +38,7 @@ class Cox_cx(object):
         self.disp_buff = np.empty((self.scr_height, self.scr_width, 3), dtype=np.uint8)
         cv2.imshow('', self.disp_buff)
         cv2.resizeWindow('', (self.scr_width,self.scr_height))
+        self.hour_dir = ''
 
     def init_cam_vari(self,width,height,ip,port):
         self.width = width
@@ -44,8 +46,6 @@ class Cox_cx(object):
         self.npix = width * height
         self.ip = ip
         self.port = port
-        self.lowBound = -1
-        self.highBound = -1
         self.windowName = 'show'
         dll_path = opjoin('dll', 'ThermalCamDll.dll')
         self.dll = windll.LoadLibrary(dll_path)
@@ -128,6 +128,35 @@ class Cox_cx(object):
                         dtype=np.uint16,
                         shape=(self.height, self.width))
 
+    def thresholding(self):
+        b_img = self.np_img_16.copy()
+        b_img[b_img <= self.thd] = 0
+        b_img[b_img > self.thd] = 255
+        b_img = b_img.astype(np.uint8)
+        kern = cv2.getStructuringElement(cv2.MORPH_RECT, (15,15))
+        b_img = cv2.dilate(b_img, kern)
+        contours,_ = cv2.findContours(b_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        return contours
+        
+    def draw_contours(self, img8, img16, contours):
+        for n,_ in enumerate(contours):
+            mask = np.zeros(img8.shape[0:2], dtype=np.uint8)
+            cv2.fillPoly(mask, pts=contours[n:n+1], color=(1))
+            mmax = (img16*mask).max()
+            max_t = self.correct_temp(mmax)
+            pt = contours[n]
+            x = []
+            y = []
+            for m in range(len(pt)):
+                x.append(pt[m][0][0])
+                y.append(pt[m][0][1])
+            lb_xpos = np.array(x).max()
+            lb_ypos = np.array(y).max()
+            cv2.rectangle(img8, (lb_xpos, lb_ypos-12), (lb_xpos+35, lb_ypos+1), 
+                                                (128,128,128), cv2.FILLED)
+            cv2.putText(img8, '%.1f'%max_t, (lb_xpos,lb_ypos), self.font,
+                        0.5, (255,255,255), 1, cv2.LINE_AA)
+
     def processing(self):
         '''GetIRImages(HANDLE handle, UINT *pTimerID, IRF_IR_CAM_DATA_T* cam_data)'''
         test = False
@@ -137,13 +166,7 @@ class Cox_cx(object):
             self.np_img_16 = cv2.imread('ir_test_02.jpg',0).astype(np.uint16)
             self.np_img_16 = self.np_img_16 * 200
 
-        b_np_img = self.np_img_16.copy()
-        b_np_img[b_np_img <= self.thd] = 0
-        b_np_img[b_np_img> self.thd] = 255
-        b_np_img = b_np_img.astype(np.uint8)
-        b_np_img = cv2.dilate(b_np_img, cv2.getStructuringElement(cv2.MORPH_RECT, (15,15)))
-        
-        countours,_ = cv2.findContours(b_np_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        contours = self.thresholding()
 
         np_img_float = self.np_img_16.astype(np.float)
         np_img_float = np_img_float - np_img_float.min()
@@ -152,34 +175,18 @@ class Cox_cx(object):
         
         alarm = False
         im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_JET)
-        cv2.drawContours(im_8, countours, -1, (255,255,255))
-        if len(countours) > 0:
+        cv2.drawContours(im_8, contours, -1, (255,255,255))
+        if len(contours) > 0:
             alarm = True
-        for n,_ in enumerate(countours):
-            mask = np.zeros_like(self.np_img_16)
-            cv2.fillPoly(mask, pts=countours[n:n+1], color=(1))
-            mmax = (self.np_img_16*mask).max()
-            max_t = self.correct_temp(mmax)
-            pt = countours[n]
-            x = []
-            y = []
-            for m in range(len(pt)):
-                x.append(pt[m][0][0])
-                y.append(pt[m][0][1])
-            lb_xpos = np.array(x).max()
-            lb_ypos = np.array(y).max()
-            cv2.rectangle(im_8, (lb_xpos, lb_ypos-12), (lb_xpos+35, lb_ypos+1), 
-                                                (128,128,128), cv2.FILLED)
-            im_8 = cv2.putText(im_8, '%.1f'%max_t, (lb_xpos,lb_ypos), self.font,
-                        0.5, (255,255,255), 1, cv2.LINE_AA)
+        self.draw_contours(im_8, self.np_img_16, contours)
 
         im_8 = cv2.resize(im_8, (self.scr_width/2,self.scr_height), 
                                     interpolation=cv2.INTER_NEAREST)
         cv2.rectangle(im_8, (10, 10), (440, 40), (128,128,128), cv2.FILLED)
-        cv2.putText(im_8, 'THD(+/-) %.2f  Emissivity(w/s)%.2f MAX %d'%(
+        cv2.putText(im_8, 'THD(+/-) %.2f  Emissivity(w/s)%.2f MAX %.2f'%(
                     self.correct_temp(self.thd), 
                     self.corrPara.emissivity,
-                    self.np_img_16.max()), 
+                    self.correct_temp(self.np_img_16.max())), 
                     (15, 30), self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
         npix = self.rgb_width * self.rgb_height * 3
         rgb = np.frombuffer(self.map[0:npix], dtype=np.uint8)
@@ -190,17 +197,30 @@ class Cox_cx(object):
         self.disp_buff[:,0:self.scr_width/2,:]= im_8
         self.disp_buff[:,self.scr_width/2:,:] = rgb
 
-        if alarm:
+        if True:
             hdd = psutil.disk_usage('/')
             space_megabytes = hdd.free/(1024*1024)
-            if space_megabytes < 9000:
+            print space_megabytes
+            if space_megabytes < 1000:
                 cv2.putText(self.disp_buff, 'Storage is full',
                     (15, 100), self.font, 1, (0,255,255), 2, cv2.LINE_AA)
             else:
                 ts_str = datetime.now().strftime("%y%m%d-%H%M%S-%f")
                 ts_str = ts_str[:-3]
-                cv2.imwrite(opjoin('record', ts_str+'.jpg'), self.disp_buff)
-
+                t0=time.time()
+                if alarm:
+                    dir = 'alarm'
+                else:
+                    dir = 'record'
+                hour_dir = ts_str[0:9]
+                if hour_dir != self.hour_dir:
+                    self.hour_dir = hour_dir
+                    try:
+                        os.mkdir(opjoin(dir, hour_dir))
+                    except:
+                        pass
+                cv2.imwrite(opjoin(dir, hour_dir, ts_str+'.jpg'), self.disp_buff)
+                #print int(1000*(time.time()-t0))
         cv2.imshow('', self.disp_buff)
         key = cv2.waitKey(100)
         if key & 0xff == ord('+'):
@@ -300,9 +320,8 @@ class Cox_cx(object):
         Img = np.ceil(Img*255)
         cv2.imwrite(fullpath, Img, [cv2.IMWRITE_JPEG_QUALITY, 90])
 
-def rgb_capture_process(_):
+def rgb_capture_process(ipaddr):
     ipcam = hikvision.HikVision()
-    ipaddr = "192.168.1.119"
     ipport = "8000"
     userName = "admin"
     password = "12345"
@@ -316,25 +335,14 @@ if __name__ == '__main__':
     buf = bytearray(1920*1080*3)
     fid.write(buf)
     fid.close()
-    try:
-        os.mkdir('record')
-    except:
-        pass
-    rgb_proc = mp.Process(target=rgb_capture_process, args=(None,))
+    dirlist = ['record','alarm']
+    for d in dirlist:
+       try:
+           os.mkdir(d)
+       except:
+           pass
+    rgb_proc = mp.Process(target=rgb_capture_process, args=("192.168.1.119",))
     rgb_proc.start()
 
-    cox = Cox_cx(384, 288, "192.168.88.253", "15001")
+    cox = insight_thermal_analyzer(384, 288, "192.168.88.253", "15001")
     cox.connect()
-
-    #for m in range(len(countours[0])):
-    #    ptn = countours[0][m]
-    #    x = 0
-    #    y = 0
-    #    for n in range(len(ptn)):
-    #        x += ptn[n][0][0]
-    #        y += ptn[n][0][1]
-    #    x = x / len(ptn)
-    #    y = y / len(ptn)
-    #    size = 30
-    #    alarm = True
-    #    cv2.rectangle(np_img_8, (x-size, y-size), (x+size, y+size), 255, 1)

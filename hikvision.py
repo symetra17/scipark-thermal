@@ -194,7 +194,10 @@ class HikVision(object):
             if frameInfo.dwFrameNum % 2 == 0:
                 size = RGB.shape[0] * RGB.shape[1] * RGB.shape[2]
                 self.map[0:(size)] = RGB.tobytes()
-            return 0
+            
+            #cv2.imshow('',RGB)
+            #cv2.waitKey(10)
+
         except Exception as e:
             print('Exception in decode callback', e.message)
             

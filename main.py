@@ -16,6 +16,12 @@ import struct
 import hikvision
 import multiprocessing as mp
 import psutil
+import collections
+
+ST_QSIZE = 30
+storage_q = mp.Queue(ST_QSIZE)
+buf_q = collections.deque(maxlen=10)
+T_RELOAD = 10  # recording tail number of frame
 
 class insight_thermal_analyzer(object):
 
@@ -39,6 +45,7 @@ class insight_thermal_analyzer(object):
         cv2.imshow('', self.disp_buff)
         cv2.resizeWindow('', (self.scr_width,self.scr_height))
         self.hour_dir = ''
+        self.alarm = 0
 
     def init_cam_vari(self,width,height,ip,port):
         self.width = width
@@ -158,6 +165,7 @@ class insight_thermal_analyzer(object):
                         0.5, (255,255,255), 1, cv2.LINE_AA)
 
     def processing(self):
+
         '''GetIRImages(HANDLE handle, UINT *pTimerID, IRF_IR_CAM_DATA_T* cam_data)'''
         test = False
         if not test:
@@ -168,16 +176,15 @@ class insight_thermal_analyzer(object):
 
         contours = self.thresholding()
 
-        np_img_float = self.np_img_16.astype(np.float)
-        np_img_float = np_img_float - np_img_float.min()
-        np_img_float = 255 * np_img_float / np_img_float.max()
-        im_8 = np_img_float.astype(np.uint8)
+        f_img = self.np_img_16.astype(np.float)
+        f_img = f_img - f_img.min()
+        f_img = 255 * f_img / f_img.max()
+        im_8 = f_img.astype(np.uint8)
         
-        alarm = False
         im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_JET)
         cv2.drawContours(im_8, contours, -1, (255,255,255))
         if len(contours) > 0:
-            alarm = True
+            self.alarm = T_RELOAD
         self.draw_contours(im_8, self.np_img_16, contours)
 
         im_8 = cv2.resize(im_8, (self.scr_width/2,self.scr_height), 
@@ -197,35 +204,30 @@ class insight_thermal_analyzer(object):
         self.disp_buff[:,0:self.scr_width/2,:]= im_8
         self.disp_buff[:,self.scr_width/2:,:] = rgb
 
-        if True:
+        ts_str = datetime.now().strftime("%y%m%d-%H%M%S-%f")[:-3]
+        fn = opjoin('record', ts_str + '.jpg')
+
+        if self.alarm == 0:
+            fn = opjoin('record', ts_str + '.jpg')
+            buf_q.append([fn, self.disp_buff.copy()])
+        else:
+            if self.alarm == T_RELOAD:
+                for k in range(len(buf_q)):
+                    if storage_q.qsize() < ST_QSIZE:
+                        storage_q.put(buf_q.pop())
+
+            if storage_q.qsize() < ST_QSIZE:
+                storage_q.put([fn, self.disp_buff.copy()])
+
+            self.alarm -= 1
             hdd = psutil.disk_usage('/')
-            space_megabytes = hdd.free/(1024*1024)
-            if space_megabytes < 1000:
+            space_mb = hdd.free/(1024*1024)
+            if space_mb < 1000:
                 cv2.putText(self.disp_buff, 'Storage is full',
                     (15, 100), self.font, 1, (0,255,255), 2, cv2.LINE_AA)
-            else:
-                ts_str = datetime.now().strftime("%y%m%d-%H%M%S-%f")
-                ts_str = ts_str[:-3]
-                t0=time.time()
-                if alarm:
-                    dir = 'alarm'
-                else:
-                    dir = 'record'
-                hour_dir = ts_str[0:9]
-                if hour_dir != self.hour_dir:
-                    self.hour_dir = hour_dir
-                    try:
-                        os.mkdir(opjoin('alarm', hour_dir))
-                    except:
-                        pass
-                    try:
-                        os.mkdir(opjoin('record', hour_dir))
-                    except:
-                        pass
-                cv2.imwrite(opjoin(dir, hour_dir, ts_str+'.jpg'), self.disp_buff)
-                #print int(1000*(time.time()-t0))
+                
         cv2.imshow('', self.disp_buff)
-        key = cv2.waitKey(100)
+        key = cv2.waitKey(133)
         if key & 0xff == ord('+'):
             self.thd += 10
             self.save_thd()
@@ -304,11 +306,11 @@ class insight_thermal_analyzer(object):
     def setNUC(self):
         self.dll.SendMessageToCamera.restype = c_short
         self.dll.SendMessageToCamera.argtypes = [wintypes.HANDLE, POINTER(c_uint), 
-                                    c_int,c_ushort,c_ushort,c_ulong,c_ulong,c_ulong]
+                                c_int,c_ushort,c_ushort,c_ulong,c_ulong,c_ulong]
         try:
             err = self.dll.SendMessageToCamera(self.mHandle, byref(self.keepAlive),
-                                                  td.IRF_MESSAGE_TYPE_T._IRF_SET_CAM_DATA.value,
-                                                  td.CAMMAND_CODE.CMD_NUC.value, 7, 0, 0, 0)
+                                  td.IRF_MESSAGE_TYPE_T._IRF_SET_CAM_DATA.value,
+                                  td.CAMMAND_CODE.CMD_NUC.value, 7, 0, 0, 0)
             if err == 1:
                 pass
             else:
@@ -333,6 +335,18 @@ def rgb_capture_process(ipaddr):
     while True:
         time.sleep(10)
 
+def saving_image_process(st_q):
+    while True:
+        print 'st_q.qsize ',st_q.qsize()
+        if st_q.qsize() > 0:
+            a,b = st_q.get()
+            hdd = psutil.disk_usage('/')
+            space_mb = hdd.free/(1024*1024)
+            if space_mb > 1000:
+                print a
+                cv2.imwrite(a,b)
+        time.sleep(0.1)
+
 if __name__ == '__main__':
     fid = open("sharedmem.dat", "wb")
     buf = bytearray(1920*1080*3)
@@ -344,6 +358,9 @@ if __name__ == '__main__':
            os.mkdir(d)
        except:
            pass
+    sav_proc = mp.Process(target=saving_image_process, args=(storage_q,))
+    sav_proc.start()
+
     rgb_proc = mp.Process(target=rgb_capture_process, args=("192.168.1.119",))
     rgb_proc.start()
 

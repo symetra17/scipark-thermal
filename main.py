@@ -337,7 +337,6 @@ def rgb_capture_process(ipaddr):
 
 def saving_image_process(st_q):
     while True:
-        print 'st_q.qsize ',st_q.qsize()
         if st_q.qsize() > 0:
             a,b = st_q.get()
             hdd = psutil.disk_usage('/')
@@ -352,7 +351,7 @@ if __name__ == '__main__':
     buf = bytearray(1920*1080*3)
     fid.write(buf)
     fid.close()
-    dirlist = ['record','alarm']
+    dirlist = ['record']
     for d in dirlist:
        try:
            os.mkdir(d)

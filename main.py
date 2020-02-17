@@ -17,11 +17,27 @@ import hikvision
 import multiprocessing as mp
 import psutil
 import collections
+import wave
+import scipy.io.wavfile
 
-ST_QSIZE = 30
+
+ST_QSIZE = 50
+T_RELOAD = 20   # recording head and tail number of frame
+
+import sounddevice as sd
+
+def sound_process(snd_q):
+    a, audio_array = scipy.io.wavfile.read('doodoo.wav')
+    while True:
+        snd_q.get()
+        sd.play(audio_array, 16000)
+        sd.wait()
+
 storage_q = mp.Queue(ST_QSIZE)
-buf_q = collections.deque(maxlen=10)
-T_RELOAD = 10  # recording tail number of frame
+buf_q = collections.deque(maxlen=T_RELOAD)
+sound_q = mp.Queue(1)
+
+
 
 class insight_thermal_analyzer(object):
 
@@ -32,8 +48,8 @@ class insight_thermal_analyzer(object):
                                     self.corrPara, int(ir_reading))
 
     def __init__(self,width,height,ip,port):
-        self.rgb_width = 1920
-        self.rgb_height = 1080
+        self.rgb_shape = (1080,1920,3)
+        self.rgb_npix = self.rgb_shape[0]*self.rgb_shape[1]*self.rgb_shape[2]
         self.scr_width = 1800
         self.scr_height = 900
         self.init_cam_vari(width,height,ip,port)
@@ -41,8 +57,8 @@ class insight_thermal_analyzer(object):
         self.fid = open('sharedmem.dat', "r+")
         self.map = mmap.mmap(self.fid.fileno(), 0)
         cv2.namedWindow('', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        self.disp_buff = np.empty((self.scr_height, self.scr_width, 3), dtype=np.uint8)
-        cv2.imshow('', self.disp_buff)
+        buf = np.empty((self.scr_height, self.scr_width, 3), dtype=np.uint8)
+        cv2.imshow('', buf)
         cv2.resizeWindow('', (self.scr_width,self.scr_height))
         self.hour_dir = ''
         self.alarm = 0
@@ -124,7 +140,8 @@ class insight_thermal_analyzer(object):
         self.setSize()
         self.setNUC()
         while (self.mHandle != -1):
-            self.processing()
+            if self.processing() == -1:
+                break
 
     def get_raw_image(self):
         val = self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
@@ -185,6 +202,9 @@ class insight_thermal_analyzer(object):
         cv2.drawContours(im_8, contours, -1, (255,255,255))
         if len(contours) > 0:
             self.alarm = T_RELOAD
+            if not sound_q.full():
+                sound_q.put(0)
+
         self.draw_contours(im_8, self.np_img_16, contours)
 
         im_8 = cv2.resize(im_8, (self.scr_width/2,self.scr_height), 
@@ -195,21 +215,22 @@ class insight_thermal_analyzer(object):
                     self.corrPara.emissivity,
                     self.correct_temp(self.np_img_16.max())), 
                     (15, 30), self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
-        npix = self.rgb_width * self.rgb_height * 3
-        rgb = np.frombuffer(self.map[0:npix], dtype=np.uint8)
-        rgb = rgb.reshape((self.rgb_height,self.rgb_width,3))
+
+        rgb = np.frombuffer(self.map[0:self.rgb_npix], dtype=np.uint8)
+        rgb = rgb.reshape(self.rgb_shape)
         rgb = cv2.resize(rgb, (self.scr_width/2, self.scr_height), 
                                     interpolation=cv2.INTER_NEAREST)
 
-        self.disp_buff[:,0:self.scr_width/2,:]= im_8
-        self.disp_buff[:,self.scr_width/2:,:] = rgb
+        scr_buff = np.empty((self.scr_height, self.scr_width, 3), dtype=np.uint8)
+        scr_buff[:,0:self.scr_width/2,:]= im_8
+        scr_buff[:,self.scr_width/2:,:] = rgb
 
         ts_str = datetime.now().strftime("%y%m%d-%H%M%S-%f")[:-3]
         fn = opjoin('record', ts_str + '.jpg')
 
         if self.alarm == 0:
             fn = opjoin('record', ts_str + '.jpg')
-            buf_q.append([fn, self.disp_buff.copy()])
+            buf_q.append([fn, scr_buff.copy()])
         else:
             if self.alarm == T_RELOAD:
                 for k in range(len(buf_q)):
@@ -217,16 +238,16 @@ class insight_thermal_analyzer(object):
                         storage_q.put(buf_q.pop())
 
             if storage_q.qsize() < ST_QSIZE:
-                storage_q.put([fn, self.disp_buff.copy()])
+                storage_q.put([fn, scr_buff.copy()])
 
             self.alarm -= 1
             hdd = psutil.disk_usage('/')
             space_mb = hdd.free/(1024*1024)
             if space_mb < 1000:
-                cv2.putText(self.disp_buff, 'Storage is full',
+                cv2.putText(scr_buff, 'Storage is full',
                     (15, 100), self.font, 1, (0,255,255), 2, cv2.LINE_AA)
                 
-        cv2.imshow('', self.disp_buff)
+        cv2.imshow('', scr_buff)
         key = cv2.waitKey(133)
         if key & 0xff == ord('+'):
             self.thd += 10
@@ -241,7 +262,9 @@ class insight_thermal_analyzer(object):
             self.corrPara.emissivity -= 0.01
             self.save_emissivity()
         elif key & 0xff == ord('q'):
-            pass
+            return -1
+
+        return 0
 
     def save_emissivity(self):
         fid=open('emissivity.cfg','w')
@@ -344,24 +367,25 @@ def saving_image_process(st_q):
             if space_mb > 1000:
                 print a
                 cv2.imwrite(a,b)
-        time.sleep(0.1)
+        time.sleep(0.05)
 
 if __name__ == '__main__':
     fid = open("sharedmem.dat", "wb")
     buf = bytearray(1920*1080*3)
     fid.write(buf)
     fid.close()
-    dirlist = ['record']
-    for d in dirlist:
-       try:
-           os.mkdir(d)
-       except:
-           pass
+    try:
+        os.mkdir('record')
+    except:
+        pass
     sav_proc = mp.Process(target=saving_image_process, args=(storage_q,))
     sav_proc.start()
 
     rgb_proc = mp.Process(target=rgb_capture_process, args=("192.168.1.119",))
     rgb_proc.start()
+
+    sq = mp.Process(target=sound_process, args=(sound_q,))
+    sq.start()
 
     cox = insight_thermal_analyzer(384, 288, "192.168.88.253", "15001")
     cox.connect()

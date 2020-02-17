@@ -360,13 +360,12 @@ def rgb_capture_process(ipaddr):
 
 def saving_image_process(st_q):
     while True:
-        if st_q.qsize() > 0:
-            a,b = st_q.get()
-            hdd = psutil.disk_usage('/')
-            space_mb = hdd.free/(1024*1024)
-            if space_mb > 1000:
-                print a
-                cv2.imwrite(a,b)
+        a,b = st_q.get()
+        hdd = psutil.disk_usage('/')
+        space_mb = hdd.free/(1024*1024)
+        if space_mb > 1000:
+            print a
+            cv2.imwrite(a,b)
         time.sleep(0.05)
 
 if __name__ == '__main__':

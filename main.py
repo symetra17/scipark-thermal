@@ -19,25 +19,33 @@ import psutil
 import collections
 import wave
 import scipy.io.wavfile
-
-
-ST_QSIZE = 50
-T_RELOAD = 20   # recording head and tail number of frame
-
 import sounddevice as sd
 
+
+# Recording extension header and tail number of frame
+# when an overtemperature event occur, a few seconds of record ahead of the 
+# event would be saved, after the event, a few seconds of record folowing
+# the event would also be saved.
+RECORD_EXTEND_T = 20   
+AUDIO_FILE = 'doodoo.wav'      # sample rate 16KHz
+RGB_IP = "192.168.1.119"
+THERMAL_IP = "192.168.88.253"
+NMAP_FILE = "sharedmem.dat"
+RGB_SHAPE = (1080,1920,3)
+RGB_NPIX = RGB_SHAPE[0] * RGB_SHAPE[1] * RGB_SHAPE[2]
+SCR_WIDTH = 1800
+SCR_HEIGHT = 900
+
+storage_q = mp.Queue(2*RECORD_EXTEND_T+10)
+buf_q = collections.deque(maxlen=RECORD_EXTEND_T)
+sound_q = mp.Queue(1)
+
 def sound_process(snd_q):
-    a, audio_array = scipy.io.wavfile.read('doodoo.wav')
+    a, audio_array = scipy.io.wavfile.read(AUDIO_FILE)
     while True:
         snd_q.get()
         sd.play(audio_array, 16000)
         sd.wait()
-
-storage_q = mp.Queue(ST_QSIZE)
-buf_q = collections.deque(maxlen=T_RELOAD)
-sound_q = mp.Queue(1)
-
-
 
 class insight_thermal_analyzer(object):
 
@@ -48,18 +56,14 @@ class insight_thermal_analyzer(object):
                                     self.corrPara, int(ir_reading))
 
     def __init__(self,width,height,ip,port):
-        self.rgb_shape = (1080,1920,3)
-        self.rgb_npix = self.rgb_shape[0]*self.rgb_shape[1]*self.rgb_shape[2]
-        self.scr_width = 1800
-        self.scr_height = 900
         self.init_cam_vari(width,height,ip,port)
         self.load_app_settings()
-        self.fid = open('sharedmem.dat', "r+")
+        self.fid = open(NMAP_FILE, "r+")
         self.map = mmap.mmap(self.fid.fileno(), 0)
         cv2.namedWindow('', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        buf = np.empty((self.scr_height, self.scr_width, 3), dtype=np.uint8)
+        buf = np.empty((SCR_HEIGHT, SCR_WIDTH, 3), dtype=np.uint8)
         cv2.imshow('', buf)
-        cv2.resizeWindow('', (self.scr_width,self.scr_height))
+        cv2.resizeWindow('', (SCR_WIDTH,SCR_HEIGHT))
         self.hour_dir = ''
         self.alarm = 0
 
@@ -69,7 +73,6 @@ class insight_thermal_analyzer(object):
         self.npix = width * height
         self.ip = ip
         self.port = port
-        self.windowName = 'show'
         dll_path = opjoin('dll', 'ThermalCamDll.dll')
         self.dll = windll.LoadLibrary(dll_path)
         self.mHandle = wintypes.HANDLE()
@@ -183,7 +186,6 @@ class insight_thermal_analyzer(object):
 
     def processing(self):
 
-        '''GetIRImages(HANDLE handle, UINT *pTimerID, IRF_IR_CAM_DATA_T* cam_data)'''
         test = False
         if not test:
             self.get_raw_image()
@@ -201,14 +203,14 @@ class insight_thermal_analyzer(object):
         im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_JET)
         cv2.drawContours(im_8, contours, -1, (255,255,255))
         if len(contours) > 0:
-            self.alarm = T_RELOAD
+            self.alarm = RECORD_EXTEND_T
             if not sound_q.full():
                 sound_q.put(0)
 
         self.draw_contours(im_8, self.np_img_16, contours)
 
-        im_8 = cv2.resize(im_8, (self.scr_width/2,self.scr_height), 
-                                    interpolation=cv2.INTER_NEAREST)
+        im_8 = cv2.resize(im_8, (SCR_WIDTH/2,SCR_HEIGHT), 
+                                            interpolation=cv2.INTER_NEAREST)
         cv2.rectangle(im_8, (10, 10), (440, 40), (128,128,128), cv2.FILLED)
         cv2.putText(im_8, 'THD(+/-) %.2f  Emissivity(w/s)%.2f MAX %.2f'%(
                     self.correct_temp(self.thd), 
@@ -216,14 +218,14 @@ class insight_thermal_analyzer(object):
                     self.correct_temp(self.np_img_16.max())), 
                     (15, 30), self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
 
-        rgb = np.frombuffer(self.map[0:self.rgb_npix], dtype=np.uint8)
-        rgb = rgb.reshape(self.rgb_shape)
-        rgb = cv2.resize(rgb, (self.scr_width/2, self.scr_height), 
-                                    interpolation=cv2.INTER_NEAREST)
+        rgb = np.frombuffer(self.map[0:RGB_NPIX], dtype=np.uint8)
+        rgb = rgb.reshape(RGB_SHAPE)
+        rgb = cv2.resize(rgb, (SCR_WIDTH/2, SCR_HEIGHT), 
+                                            interpolation=cv2.INTER_NEAREST)
 
-        scr_buff = np.empty((self.scr_height, self.scr_width, 3), dtype=np.uint8)
-        scr_buff[:,0:self.scr_width/2,:]= im_8
-        scr_buff[:,self.scr_width/2:,:] = rgb
+        scr_buff = np.empty((SCR_HEIGHT, SCR_WIDTH, 3), dtype=np.uint8)
+        scr_buff[:,0:SCR_WIDTH/2,:]= im_8
+        scr_buff[:,SCR_WIDTH/2:,:] = rgb
 
         ts_str = datetime.now().strftime("%y%m%d-%H%M%S-%f")[:-3]
         fn = opjoin('record', ts_str + '.jpg')
@@ -232,12 +234,12 @@ class insight_thermal_analyzer(object):
             fn = opjoin('record', ts_str + '.jpg')
             buf_q.append([fn, scr_buff.copy()])
         else:
-            if self.alarm == T_RELOAD:
+            if self.alarm == RECORD_EXTEND_T:
                 for k in range(len(buf_q)):
-                    if storage_q.qsize() < ST_QSIZE:
+                    if not storage_q.full():
                         storage_q.put(buf_q.pop())
 
-            if storage_q.qsize() < ST_QSIZE:
+            if not storage_q.full():
                 storage_q.put([fn, scr_buff.copy()])
 
             self.alarm -= 1
@@ -369,8 +371,8 @@ def saving_image_process(st_q):
         time.sleep(0.05)
 
 if __name__ == '__main__':
-    fid = open("sharedmem.dat", "wb")
-    buf = bytearray(1920*1080*3)
+    fid = open(NMAP_FILE, "wb")
+    buf = bytearray(RGB_NPIX)
     fid.write(buf)
     fid.close()
     try:
@@ -378,13 +380,16 @@ if __name__ == '__main__':
     except:
         pass
     sav_proc = mp.Process(target=saving_image_process, args=(storage_q,))
+    sav_proc.daemon = True
     sav_proc.start()
 
-    rgb_proc = mp.Process(target=rgb_capture_process, args=("192.168.1.119",))
+    rgb_proc = mp.Process(target=rgb_capture_process, args=(RGB_IP,))
+    rgb_proc.daemon = True
     rgb_proc.start()
 
     sq = mp.Process(target=sound_process, args=(sound_q,))
+    sq.daemon = True
     sq.start()
 
-    cox = insight_thermal_analyzer(384, 288, "192.168.88.253", "15001")
+    cox = insight_thermal_analyzer(384, 288, THERMAL_IP, "15001")
     cox.connect()

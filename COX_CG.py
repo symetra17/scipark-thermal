@@ -133,7 +133,11 @@ class COX_CG(object):
         '''
         
         self.coxDLL.SendCameraMessage.restype = c_short
-        self.coxDLL.SendCameraMessage.argtypes = [wintypes.HANDLE, POINTER(c_uint), c_int,c_ushort,c_ushort]
+        self.coxDLL.SendCameraMessage.argtypes = [wintypes.HANDLE, 
+                                                    POINTER(c_uint), 
+                                                    c_int,
+                                                    c_ushort,
+                                                    c_ushort]
         
         try:
             err = self.coxDLL.SendCameraMessage(
@@ -362,7 +366,7 @@ class COX_CG(object):
         return err
         
 if __name__ == '__main__':
-    cox = COX_CG(640,480,"192.168.0.100","15001","admin","12345")
+    cox = COX_CG(640,480,"192.168.88.253","15001","admin","12345")
     cox.IR_init()
     cox.connect()
     #cnt = 0
@@ -375,4 +379,4 @@ if __name__ == '__main__':
         #rawdata = cox.getRAW()
         #cox.saveIRimage(rawdata)
         #cox._saveIRTextData(rawdata)
-        gevent.sleep(3)
+        gevent.sleep(0.5)

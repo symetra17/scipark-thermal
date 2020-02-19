@@ -21,7 +21,6 @@ import wave
 import scipy.io.wavfile
 import sounddevice as sd
 
-
 # Recording extension header and tail number of frame
 # when an overtemperature event occur, a few seconds of record ahead of the 
 # event would be saved, after the event, a few seconds of record folowing
@@ -35,10 +34,17 @@ RGB_SHAPE = (1080,1920,3)
 RGB_NPIX = RGB_SHAPE[0] * RGB_SHAPE[1] * RGB_SHAPE[2]
 SCR_WIDTH = 1800
 SCR_HEIGHT = 900
-
+COX_MODEL = 'CG'
 storage_q = mp.Queue(2*RECORD_EXTEND_T+10)
 buf_q = collections.deque(maxlen=RECORD_EXTEND_T)
 sound_q = mp.Queue(1)
+
+if COX_MODEL=='CG':
+    THERMAL_WIDTH = 640
+    THERMAL_HEIGHT = 480
+else:
+    THERMAL_WIDTH = 384
+    THERMAL_HEIGHT = 288
 
 def sound_process(snd_q):
     a, audio_array = scipy.io.wavfile.read(AUDIO_FILE)
@@ -50,13 +56,17 @@ def sound_process(snd_q):
 class insight_thermal_analyzer(object):
 
     def correct_temp(self, ir_reading):
-        strchr = self.dll.GetCorrectedTemp
-        strchr.restype = c_float
-        return self.dll.GetCorrectedTemp(byref(self.pfloat_lut), 
-                                    self.corrPara, int(ir_reading))
+        if COX_MODEL=='CG':
+            return ir_reading*0.01233 - 51
+        else:
+            strchr = self.dll.GetCorrectedTemp
+            strchr.restype = c_float
+            return self.dll.GetCorrectedTemp(byref(self.pfloat_lut), 
+                                        self.corrPara, int(ir_reading))
 
-    def __init__(self,width,height,ip,port):
-        self.init_cam_vari(width,height,ip,port)
+
+    def __init__(self,ip,port):
+        self.init_cam_vari(ip,port)
         self.load_app_settings()
         self.fid = open(NMAP_FILE, "r+")
         self.map = mmap.mmap(self.fid.fileno(), 0)
@@ -67,20 +77,21 @@ class insight_thermal_analyzer(object):
         self.hour_dir = ''
         self.alarm = 0
 
-    def init_cam_vari(self,width,height,ip,port):
-        self.width = width
-        self.height = height
-        self.npix = width * height
+    def init_cam_vari(self,ip,port):
+        self.npix = THERMAL_WIDTH * THERMAL_HEIGHT
         self.ip = ip
         self.port = port
-        dll_path = opjoin('dll', 'ThermalCamDll.dll')
+        if COX_MODEL == 'CG':
+            dll_path = opjoin('dll', 'CG_ThermalCamDll.dll')
+        else:
+            dll_path = opjoin('dll', 'ThermalCamDll.dll')
         self.dll = windll.LoadLibrary(dll_path)
         self.mHandle = wintypes.HANDLE()
         self.keepAlive = c_uint()
         self.camData = td.IRF_IR_CAM_DATA_T()
-        self.ushort_ptr = (c_ushort *(self.width * self.height ))()
+        self.ushort_ptr = (c_ushort *(THERMAL_WIDTH * THERMAL_HEIGHT ))()
         self.camData.ir_image = cast(self.ushort_ptr, POINTER(c_ushort))
-        self.camData.image_buffer_size = self.width * self.height
+        self.camData.image_buffer_size = 4 * THERMAL_WIDTH * THERMAL_HEIGHT
         self.lpsize = (c_byte*8192)()
         self.camData.lpNextData = cast(self.lpsize, POINTER(c_byte))
         self.camData.dwSize = 0
@@ -115,7 +126,6 @@ class insight_thermal_analyzer(object):
         self.temp_lut = struct.unpack('f'*nfloat, x)
         for n in range(0, 65535):
             self.pfloat_lut[n] = self.temp_lut[n]
-
     def disconnect(self):
         
         if self.mHandle.value != None:
@@ -140,20 +150,26 @@ class insight_thermal_analyzer(object):
             print("Could not connect thermal camera")
             return
         self.requestCameraData()
-        self.setSize()
         self.setNUC()
+        # Function GetIRImages got to be called twice before it would not return error code
+        self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
+        self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
         while (self.mHandle != -1):
-            if self.processing() == -1:
-                break
+            try:
+                if self.processing() == -1:
+                    break
+            except Exception as e:
+                print e
 
     def get_raw_image(self):
         val = self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
-        if val != 1:
+        if val == -100:
+            return -1
+        elif val != 1:
             print("Get IR Images fail errcode=%d"%(val))
-            return
         self.np_img_16 = np.ndarray(buffer=(c_uint16 * self.npix).from_address(addressof(self.ushort_ptr)), 
                         dtype=np.uint16,
-                        shape=(self.height, self.width))
+                        shape=(THERMAL_HEIGHT, THERMAL_WIDTH))
 
     def thresholding(self):
         b_img = self.np_img_16.copy()
@@ -187,8 +203,9 @@ class insight_thermal_analyzer(object):
     def processing(self):
 
         test = False
+
         if not test:
-            self.get_raw_image()
+            self.get_raw_image() 
         else:
             self.np_img_16 = cv2.imread('ir_test_02.jpg',0).astype(np.uint16)
             self.np_img_16 = self.np_img_16 * 200
@@ -250,12 +267,12 @@ class insight_thermal_analyzer(object):
                     (15, 100), self.font, 1, (0,255,255), 2, cv2.LINE_AA)
                 
         cv2.imshow('', scr_buff)
-        key = cv2.waitKey(133)
+        key = cv2.waitKey(80)
         if key & 0xff == ord('+'):
-            self.thd += 10
+            self.thd += 5
             self.save_thd()
         elif key & 0xff == ord('-'):
-            self.thd -= 10
+            self.thd -= 5
             self.save_thd()
         elif key & 0xff == ord('w'):
             self.corrPara.emissivity += 0.01
@@ -280,8 +297,11 @@ class insight_thermal_analyzer(object):
 
     def requestCameraData(self):
         self.dll.SendCameraMessage.restype = c_short
-        self.dll.SendCameraMessage.argtypes = [wintypes.HANDLE, POINTER(c_uint), 
-                                                        c_int,c_ushort,c_ushort]
+        self.dll.SendCameraMessage.argtypes = [wintypes.HANDLE, 
+                                                POINTER(c_uint), 
+                                                c_int,
+                                                c_ushort,
+                                                c_ushort]
         err = self.dll.SendCameraMessage(self.mHandle, byref(self.keepAlive),
                                 td.IRF_MESSAGE_TYPE_T._IRF_REQ_CAM_DATA.value,0,0)
         if err != 1:
@@ -294,38 +314,8 @@ class insight_thermal_analyzer(object):
             print("send stream on message fail errcode=%d"%(err))
         return err
     
-    def setSize(self):
-        self.dll.GetIRImages.restypes = c_short
-        self.dll.GetIRImages.argtypes = [wintypes.HANDLE, POINTER(c_uint), 
-                                            POINTER(td.IRF_IR_CAM_DATA_T)]
-        try:
-            err = self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
-            if err == 1:
-                if self.camData.save_data.sensor == 0:
-                    if self.camData.save_data.tv == 0:
-                        self.width = 320
-                        self.height = 240
-                    else:
-                        self.width = 384
-                        self.height = 288
-                else:
-                    if self.camData.save_data.tv == 0:
-                        self.width = 640
-                        self.height = 480
-                    else:
-                        self.width = 640
-                        self.height = 480
-                print("COX width = %d Cox height = %d"%(self.width, self.height))
-            else:
-                print("set size errcode = %d "%(err))
-        except Exception as e:
-            print("Exception in set size",e.message)
-        
-        return err
-
-    
     def getRAW(self):
-        IRData = np.ndarray(buffer=(c_uint16 * self.width * self.height).from_address(addressof(self.irimage)), dtype=np.uint16,shape=(self.height,self.width))
+        IRData = np.ndarray(buffer=(c_uint16 * THERMAL_WIDTH * THERMAL_HEIGHT).from_address(addressof(self.irimage)), dtype=np.uint16,shape=(THERMAL_HEIGHT,THERMAL_WIDTH))
         return IRData
     
     def setNUC(self):
@@ -391,5 +381,5 @@ if __name__ == '__main__':
     sq.daemon = True
     sq.start()
 
-    cox = insight_thermal_analyzer(384, 288, THERMAL_IP, "15001")
+    cox = insight_thermal_analyzer(THERMAL_IP, "15001")
     cox.connect()

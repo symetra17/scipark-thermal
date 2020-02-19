@@ -57,7 +57,7 @@ class insight_thermal_analyzer(object):
 
     def correct_temp(self, ir_reading):
         if COX_MODEL=='CG':
-            return ir_reading*0.01233 - 51
+            return -51 + ir_reading*0.01233/self.corrPara.emissivity
         else:
             strchr = self.dll.GetCorrectedTemp
             strchr.restype = c_float

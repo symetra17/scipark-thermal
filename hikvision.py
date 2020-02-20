@@ -241,7 +241,7 @@ class HikVision(object):
                     # Put encoded video streaming package into decoder
                     b_res = self.playCtrl.PlayM4_InputData(self.lPort[0], pBuffer, dwBufSize)
                     if not b_res:
-                        print('Error in PlayM4_InputData')
+                        #print ('Error in PlayM4_InputData')
                         return 0
             return 1
         except Exception as e:

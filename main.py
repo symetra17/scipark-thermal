@@ -65,7 +65,8 @@ class insight_thermal_analyzer(object):
                                         self.corrPara, int(ir_reading))
 
 
-    def __init__(self,ip,port):
+    def __init__(self, ip, port, sn_q, sto_q):
+
         self.init_cam_vari(ip,port)
         self.load_app_settings()
         self.fid = open(NMAP_FILE, "r+")
@@ -76,13 +77,15 @@ class insight_thermal_analyzer(object):
         cv2.resizeWindow('', (SCR_WIDTH,SCR_HEIGHT))
         self.hour_dir = ''
         self.alarm = 0
+        self.sound_q = sn_q
+        self.storage_q = sto_q
 
     def init_cam_vari(self,ip,port):
         self.npix = THERMAL_WIDTH * THERMAL_HEIGHT
         self.ip = ip
         self.port = port
         if COX_MODEL == 'CG':
-            dll_path = opjoin('dll', 'CG_ThermalCamDll.dll')
+            dll_path = opjoin('dll', 'CG_ThermalCamDll_2018.dll')
         else:
             dll_path = opjoin('dll', 'ThermalCamDll.dll')
         self.dll = windll.LoadLibrary(dll_path)
@@ -101,6 +104,12 @@ class insight_thermal_analyzer(object):
         self.corrPara.atmTrans = 1.0
         self.corrPara.emissivity = 1.0
         self.pfloat_lut = (c_float*65536)()
+        self.dll.SendCameraMessage.restype = c_short
+        self.dll.SendCameraMessage.argtypes = [wintypes.HANDLE, 
+                                                POINTER(c_uint), 
+                                                c_int,
+                                                c_ushort,
+                                                c_ushort]
 
     def load_app_settings(self):
         self.font = cv2.FONT_HERSHEY_SIMPLEX
@@ -126,8 +135,8 @@ class insight_thermal_analyzer(object):
         self.temp_lut = struct.unpack('f'*nfloat, x)
         for n in range(0, 65535):
             self.pfloat_lut[n] = self.temp_lut[n]
+
     def disconnect(self):
-        
         if self.mHandle.value != None:
             self.dll.CloseConnect.restype = c_short
             self.dll.CloseConnect.argtypes = [POINTER(wintypes.HANDLE), c_uint]
@@ -141,8 +150,9 @@ class insight_thermal_analyzer(object):
     
         
     def connect(self):
-        print("Connecting  ", self.ip, self.port)
+        print "Connecting  ", self.ip, self.port
         self.dll.OpenConnect.restype = c_short
+        self.dll.CloseConnect.restype = c_short
         err = -1
         val = self.dll.OpenConnect(byref(self.mHandle), byref(self.keepAlive), 
                             self.ip, self.port, 2, 1)
@@ -156,17 +166,18 @@ class insight_thermal_analyzer(object):
         self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
         while (self.mHandle != -1):
             try:
-                if self.processing() == -1:
-                    break
+                self.processing()
             except Exception as e:
                 print e
+                print "Thermal ccamera comm reset required", str(datetime.now())
+                break
 
     def get_raw_image(self):
         val = self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
         if val == -100:
             return -1
         elif val != 1:
-            print("Get IR Images fail errcode=%d"%(val))
+            raise Exception("Get IR Images fail errcode=%d"%(val))
         self.np_img_16 = np.ndarray(buffer=(c_uint16 * self.npix).from_address(addressof(self.ushort_ptr)), 
                         dtype=np.uint16,
                         shape=(THERMAL_HEIGHT, THERMAL_WIDTH))
@@ -221,8 +232,8 @@ class insight_thermal_analyzer(object):
         cv2.drawContours(im_8, contours, -1, (255,255,255))
         if len(contours) > 0:
             self.alarm = RECORD_EXTEND_T
-            if not sound_q.full():
-                sound_q.put(0)
+            if not self.sound_q.full():
+                self.sound_q.put(0)
 
         self.draw_contours(im_8, self.np_img_16, contours)
 
@@ -253,11 +264,11 @@ class insight_thermal_analyzer(object):
         else:
             if self.alarm == RECORD_EXTEND_T:
                 for k in range(len(buf_q)):
-                    if not storage_q.full():
-                        storage_q.put(buf_q.pop())
+                    if not self.storage_q.full():
+                        self.storage_q.put(buf_q.pop())
 
-            if not storage_q.full():
-                storage_q.put([fn, scr_buff.copy()])
+            if not self.storage_q.full():
+                self.storage_q.put([fn, scr_buff.copy()])
 
             self.alarm -= 1
             hdd = psutil.disk_usage('/')
@@ -296,12 +307,6 @@ class insight_thermal_analyzer(object):
         fid.close()
 
     def requestCameraData(self):
-        self.dll.SendCameraMessage.restype = c_short
-        self.dll.SendCameraMessage.argtypes = [wintypes.HANDLE, 
-                                                POINTER(c_uint), 
-                                                c_int,
-                                                c_ushort,
-                                                c_ushort]
         err = self.dll.SendCameraMessage(self.mHandle, byref(self.keepAlive),
                                 td.IRF_MESSAGE_TYPE_T._IRF_REQ_CAM_DATA.value,0,0)
         if err != 1:
@@ -353,12 +358,16 @@ def rgb_capture_process(ipaddr):
 def saving_image_process(st_q):
     while True:
         a,b = st_q.get()
+        # free space check
         hdd = psutil.disk_usage('/')
         space_mb = hdd.free/(1024*1024)
         if space_mb > 1000:
-            print a
             cv2.imwrite(a,b)
         time.sleep(0.05)
+
+def thermal_process(sn_q, sto_q):
+    cox = insight_thermal_analyzer(THERMAL_IP, "15001", sn_q, sto_q)
+    cox.connect()
 
 if __name__ == '__main__':
     fid = open(NMAP_FILE, "wb")
@@ -381,5 +390,9 @@ if __name__ == '__main__':
     sq.daemon = True
     sq.start()
 
-    cox = insight_thermal_analyzer(THERMAL_IP, "15001")
-    cox.connect()
+    while True:
+        tp = mp.Process(target=thermal_process, args=(sound_q,storage_q,))
+        tp.daemon = True
+        tp.start()
+        tp.join()
+        time.sleep(5)

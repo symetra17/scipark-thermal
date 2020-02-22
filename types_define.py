@@ -424,7 +424,13 @@ class IRF_TEMP_CORRECTION_PAR_T(Structure):
 				('atmTemp',c_float),
 				('atmTrans',c_float)
 			]
-
+class IRF_TEMP_CORRECTION_PAR_T_CG(Structure):
+	_fields_ = [('emissivity',c_float),
+				('atmTemp',c_float),
+				('atmTrans',c_float),
+				('offset', c_int)
+			]
+			
 class IRF_IMAGE_INFO_T(Structure):
 	_fields_ = [('xSize',c_ushort),
 				('ySize',c_ushort)

@@ -32,12 +32,13 @@ THERMAL_IP = "192.168.88.253"
 NMAP_FILE = "sharedmem.dat"
 RGB_SHAPE = (1080,1920,3)
 RGB_NPIX = RGB_SHAPE[0] * RGB_SHAPE[1] * RGB_SHAPE[2]
-SCR_WIDTH = 1800
+SCR_WIDTH = 1900
 SCR_HEIGHT = 900
-COX_MODEL = 'CX'
+COX_MODEL = 'CG'
 storage_q = mp.Queue(2*RECORD_EXTEND_T+10)
 buf_q = collections.deque(maxlen=RECORD_EXTEND_T)
 sound_q = mp.Queue(1)
+
 
 if COX_MODEL=='CG':
     THERMAL_WIDTH = 640
@@ -74,14 +75,16 @@ class insight_thermal_analyzer(object):
         self.load_app_settings()
         self.fid = open(NMAP_FILE, "r+")
         self.map = mmap.mmap(self.fid.fileno(), 0)
-        cv2.namedWindow('', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+        self.title = 'Hong KONG Science and Technology Park Visitors Fever Monitoring System'
+        cv2.namedWindow(self.title, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
         buf = np.empty((SCR_HEIGHT, SCR_WIDTH, 3), dtype=np.uint8)
-        cv2.imshow('', buf)
+        cv2.imshow(self.title, buf)
         cv2.resizeWindow('', (SCR_WIDTH,SCR_HEIGHT))
         self.hour_dir = ''
         self.alarm = 0
         self.sound_q = sn_q
         self.storage_q = sto_q
+        self.logo = cv2.imread('logo.png')
 
     def init_cam_vari(self,ip,port):
         self.npix = THERMAL_WIDTH * THERMAL_HEIGHT
@@ -100,7 +103,7 @@ class insight_thermal_analyzer(object):
         self.camData.lpNextData = cast(self.lpsize, POINTER(c_byte))
         self.camData.dwSize = 0
         self.camData.dwPosition = 0
-        self.corrPara = td.IRF_TEMP_CORRECTION_PAR_T()
+        self.corrPara = td.IRF_TEMP_CORRECTION_PAR_T_CG()
         self.corrPara.atmTemp = 25.0
         self.corrPara.atmTrans = 1.0
         self.corrPara.emissivity = 1.0
@@ -284,8 +287,9 @@ class insight_thermal_analyzer(object):
             if space_mb < 1000:
                 cv2.putText(scr_buff, 'Storage is full',
                     (15, 100), self.font, 1, (0,255,255), 2, cv2.LINE_AA)
-                
-        cv2.imshow('', scr_buff)
+        scr_buff[800:800+self.logo.shape[0], 1600:1600+self.logo.shape[1], :] /= 2
+        scr_buff[800:800+self.logo.shape[0], 1600:1600+self.logo.shape[1], :] += self.logo/2
+        cv2.imshow(self.title, scr_buff)
         key = cv2.waitKey(80)
         if key & 0xff == ord('+'):
             self.thd += 3

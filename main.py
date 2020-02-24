@@ -27,14 +27,14 @@ import sounddevice as sd
 # the event would also be saved.
 RECORD_EXTEND_T = 20   
 AUDIO_FILE = 'doodoo.wav'      # sample rate 16KHz
-RGB_IP = "192.168.1.119"
+RGB_IP = "192.168.88.249"
 THERMAL_IP = "192.168.88.253"
 NMAP_FILE = "sharedmem.dat"
 RGB_SHAPE = (1080,1920,3)
 RGB_NPIX = RGB_SHAPE[0] * RGB_SHAPE[1] * RGB_SHAPE[2]
 SCR_WIDTH = 1800
 SCR_HEIGHT = 900
-COX_MODEL = 'CG'
+COX_MODEL = 'CX'
 storage_q = mp.Queue(2*RECORD_EXTEND_T+10)
 buf_q = collections.deque(maxlen=RECORD_EXTEND_T)
 sound_q = mp.Queue(1)
@@ -59,9 +59,12 @@ class insight_thermal_analyzer(object):
         if COX_MODEL=='CG':
             return -51 + ir_reading*0.01233/self.corrPara.emissivity
         else:
-            strchr = self.dll.GetCorrectedTemp
+            #return 0.321
+            # this function requires different number of input arguments in 2018 and 2015 dll
+            # GetCorrectedTemp
+            strchr = self.dll_2015.GetCorrectedTemp
             strchr.restype = c_float
-            return self.dll.GetCorrectedTemp(byref(self.pfloat_lut), 
+            return self.dll_2015.GetCorrectedTemp(byref(self.pfloat_lut), 
                                         self.corrPara, int(ir_reading))
 
 
@@ -84,11 +87,9 @@ class insight_thermal_analyzer(object):
         self.npix = THERMAL_WIDTH * THERMAL_HEIGHT
         self.ip = ip
         self.port = port
-        if COX_MODEL == 'CG':
-            dll_path = opjoin('dll', 'CG_ThermalCamDll_2018.dll')
-        else:
-            dll_path = opjoin('dll', 'ThermalCamDll.dll')
+        dll_path = opjoin('dll', 'CG_ThermalCamDll_2018.dll')    
         self.dll = windll.LoadLibrary(dll_path)
+        self.dll_2015 = windll.LoadLibrary(opjoin('dll', 'ThermalCamDll_2015.dll'))
         self.mHandle = wintypes.HANDLE()
         self.keepAlive = c_uint()
         self.camData = td.IRF_IR_CAM_DATA_T()
@@ -173,14 +174,20 @@ class insight_thermal_analyzer(object):
                 break
 
     def get_raw_image(self):
-        val = self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
-        if val == -100:
-            return -1
-        elif val != 1:
-            raise Exception("Get IR Images fail errcode=%d"%(val))
-        self.np_img_16 = np.ndarray(buffer=(c_uint16 * self.npix).from_address(addressof(self.ushort_ptr)), 
+        NAVG = 2
+        acm32 = np.zeros((THERMAL_HEIGHT,THERMAL_WIDTH), dtype=np.uint32)
+        for p in range(NAVG):
+            val = self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
+            if val == -100:
+                return -1
+            elif val != 1:
+                raise Exception("Get IR Images fail errcode=%d"%(val))
+            im16 = np.ndarray(buffer=(c_uint16 * self.npix).from_address(addressof(self.ushort_ptr)), 
                         dtype=np.uint16,
                         shape=(THERMAL_HEIGHT, THERMAL_WIDTH))
+            acm32 += im16
+        acm32 = acm32/NAVG
+        self.np_img_16 = acm32.astype(np.uint16)
 
     def thresholding(self):
         b_img = self.np_img_16.copy()
@@ -212,11 +219,9 @@ class insight_thermal_analyzer(object):
                         0.5, (255,255,255), 1, cv2.LINE_AA)
 
     def processing(self):
-
         test = False
-
         if not test:
-            self.get_raw_image() 
+            self.get_raw_image()
         else:
             self.np_img_16 = cv2.imread('ir_test_02.jpg',0).astype(np.uint16)
             self.np_img_16 = self.np_img_16 * 200
@@ -280,10 +285,10 @@ class insight_thermal_analyzer(object):
         cv2.imshow('', scr_buff)
         key = cv2.waitKey(80)
         if key & 0xff == ord('+'):
-            self.thd += 5
+            self.thd += 3
             self.save_thd()
         elif key & 0xff == ord('-'):
-            self.thd -= 5
+            self.thd -= 3
             self.save_thd()
         elif key & 0xff == ord('w'):
             self.corrPara.emissivity += 0.01

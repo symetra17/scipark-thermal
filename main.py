@@ -212,6 +212,8 @@ class insight_thermal_analyzer(object):
                 x.append(pt[m][0][0])
                 y.append(pt[m][0][1])
             lb_xpos = np.array(x).max()
+            if lb_xpos > 350:
+                lb_xpos = np.array(x).max() - 30
             lb_ypos = np.array(y).max()
             cv2.rectangle(img8, (lb_xpos, lb_ypos-12), (lb_xpos+35, lb_ypos+1), 
                                                 (128,128,128), cv2.FILLED)
@@ -232,13 +234,14 @@ class insight_thermal_analyzer(object):
         f_img = f_img - f_img.min()
         f_img = 255 * f_img / f_img.max()
         im_8 = f_img.astype(np.uint8)
-        
+        tmax = self.correct_temp(self.np_img_16.max())
         im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_JET)
         cv2.drawContours(im_8, contours, -1, (255,255,255))
         if len(contours) > 0:
             self.alarm = RECORD_EXTEND_T
-            if not self.sound_q.full():
-                self.sound_q.put(0)
+            if tmax < 40.1:
+                if not self.sound_q.full():
+                    self.sound_q.put(0)
 
         self.draw_contours(im_8, self.np_img_16, contours)
 
@@ -248,7 +251,7 @@ class insight_thermal_analyzer(object):
         cv2.putText(im_8, 'THD(+/-) %.2f  Emissivity(w/s)%.2f MAX %.2f'%(
                     self.correct_temp(self.thd), 
                     self.corrPara.emissivity,
-                    self.correct_temp(self.np_img_16.max())), 
+                    tmax), 
                     (15, 30), self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
 
         rgb = np.frombuffer(self.map[0:RGB_NPIX], dtype=np.uint8)

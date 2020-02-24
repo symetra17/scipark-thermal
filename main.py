@@ -174,15 +174,21 @@ class insight_thermal_analyzer(object):
                 break
 
     def get_raw_image(self):
-        val = self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
-        if val == -100:
-            return -1
-        elif val != 1:
-            raise Exception("Get IR Images fail errcode=%d"%(val))
-        self.np_img_16 = np.ndarray(buffer=(c_uint16 * self.npix).from_address(addressof(self.ushort_ptr)), 
+        NAVG = 2
+        acm32 = np.zeros((THERMAL_HEIGHT,THERMAL_WIDTH), dtype=np.uint32)
+        for p in range(NAVG):
+            val = self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
+            if val == -100:
+                return -1
+            elif val != 1:
+                raise Exception("Get IR Images fail errcode=%d"%(val))
+            im16 = np.ndarray(buffer=(c_uint16 * self.npix).from_address(addressof(self.ushort_ptr)), 
                         dtype=np.uint16,
                         shape=(THERMAL_HEIGHT, THERMAL_WIDTH))
-        
+            acm32 += im16
+        acm32 = acm32/NAVG
+        self.np_img_16 = acm32.astype(np.uint16)
+
     def thresholding(self):
         b_img = self.np_img_16.copy()
         b_img[b_img <= self.thd] = 0
@@ -213,11 +219,9 @@ class insight_thermal_analyzer(object):
                         0.5, (255,255,255), 1, cv2.LINE_AA)
 
     def processing(self):
-
         test = False
-
         if not test:
-            self.get_raw_image() 
+            self.get_raw_image()
         else:
             self.np_img_16 = cv2.imread('ir_test_02.jpg',0).astype(np.uint16)
             self.np_img_16 = self.np_img_16 * 200

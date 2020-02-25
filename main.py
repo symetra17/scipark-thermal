@@ -88,6 +88,7 @@ class insight_thermal_analyzer(object):
         self.sound_q = sn_q
         self.storage_q = sto_q
         self.logo = cv2.imread('logo.png')
+        self.scr_buff = np.empty((SCR_HEIGHT, SCR_WIDTH, 3), dtype=np.uint8)   # preallocate this array to speed up
 
     def init_cam_vari(self,ip,port):
         self.npix = THERMAL_WIDTH * THERMAL_HEIGHT
@@ -268,16 +269,15 @@ class insight_thermal_analyzer(object):
         rgb = cv2.resize(rgb, (SCR_WIDTH/2, SCR_HEIGHT), 
                                             interpolation=cv2.INTER_NEAREST)
 
-        scr_buff = np.empty((SCR_HEIGHT, SCR_WIDTH, 3), dtype=np.uint8)
-        scr_buff[:,0:SCR_WIDTH/2,:]= im_8
-        scr_buff[:,SCR_WIDTH/2:,:] = rgb
+        self.scr_buff[:,0:SCR_WIDTH/2,:]= im_8
+        self.scr_buff[:,SCR_WIDTH/2:,:] = rgb
 
         ts_str = datetime.now().strftime("%y%m%d-%H%M%S-%f")[:-3]
         fn = opjoin('record', ts_str + '.jpg')
 
         if self.alarm == 0:
             fn = opjoin('record', ts_str + '.jpg')
-            buf_q.append([fn, scr_buff.copy()])
+            buf_q.append([fn, self.scr_buff.copy()])
         else:
             if self.alarm == RECORD_EXTEND_T:
                 for k in range(len(buf_q)):
@@ -285,17 +285,17 @@ class insight_thermal_analyzer(object):
                         self.storage_q.put(buf_q.pop())
 
             if not self.storage_q.full():
-                self.storage_q.put([fn, scr_buff.copy()])
+                self.storage_q.put([fn, self.scr_buff.copy()])
 
             self.alarm -= 1
             hdd = psutil.disk_usage('/')
             space_mb = hdd.free/(1024*1024)
             if space_mb < 1000:
-                cv2.putText(scr_buff, 'Storage is full',
+                cv2.putText(self.scr_buff, 'Storage is full',
                     (15, 100), self.font, 1, (0,255,255), 2, cv2.LINE_AA)
-        scr_buff[800:800+self.logo.shape[0], 1600:1600+self.logo.shape[1], :] /= 2
-        scr_buff[800:800+self.logo.shape[0], 1600:1600+self.logo.shape[1], :] += self.logo/2
-        cv2.imshow(self.title, scr_buff)
+        self.scr_buff[800:800+self.logo.shape[0], 1600:1600+self.logo.shape[1], :] /= 2
+        self.scr_buff[800:800+self.logo.shape[0], 1600:1600+self.logo.shape[1], :] += self.logo/2
+        cv2.imshow(self.title, self.scr_buff)
         key = cv2.waitKey(80)
         if key & 0xff == ord('+'):
             self.thd += 3

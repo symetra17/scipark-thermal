@@ -58,7 +58,10 @@ class insight_thermal_analyzer(object):
 
     def correct_temp(self, ir_reading):
         if COX_MODEL=='CG':
-            return -51 + ir_reading*0.01233/self.corrPara.emissivity
+            strchr = self.dll.ConvertRawToTempCG
+            strchr.restype = c_float
+            res = self.dll.ConvertRawToTempCG(byref(self.camData.ir_image), self.corrPara, int(ir_reading))
+            return res
         else:
             #return 0.321
             # this function requires different number of input arguments in 2018 and 2015 dll
@@ -103,7 +106,10 @@ class insight_thermal_analyzer(object):
         self.camData.lpNextData = cast(self.lpsize, POINTER(c_byte))
         self.camData.dwSize = 0
         self.camData.dwPosition = 0
-        self.corrPara = td.IRF_TEMP_CORRECTION_PAR_T_CG()
+        if COX_MODEL=='CG':
+            self.corrPara = td.IRF_TEMP_CORRECTION_PAR_T_CG()
+        else:
+            self.corrPara = td.IRF_TEMP_CORRECTION_PAR_T()
         self.corrPara.atmTemp = 25.0
         self.corrPara.atmTrans = 1.0
         self.corrPara.emissivity = 1.0

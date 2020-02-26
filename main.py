@@ -20,7 +20,7 @@ import collections
 import wave
 import scipy.io.wavfile
 import sounddevice as sd
-
+import tkinter as tk
 # Recording extension header and tail number of frame
 # when an overtemperature event occur, a few seconds of record ahead of the 
 # event would be saved, after the event, a few seconds of record folowing
@@ -387,6 +387,28 @@ def thermal_process(sn_q, sto_q):
     cox = insight_thermal_analyzer(THERMAL_IP, "15001", sn_q, sto_q)
     cox.connect()
 
+def gui_process(action_q):
+    root=tk.Tk()
+    root.wm_attributes("-topmost", 1)
+    root.geometry("+820+30")
+    root.overrideredirect(True) # removes title bar
+    btns = []
+    btns.append(tk.Button(root,text='THD+'))
+    btns.append(tk.Button(root,text='THD-'))
+    btns.append(tk.Button(root,text='THD2+'))
+    btns.append(tk.Button(root,text='THD2-'))
+    btns.append(tk.Button(root,text='OFFSET+'))
+    btns.append(tk.Button(root,text='OFFSET-'))
+    for item in btns:
+        item.config(width=10)
+    btns[0].grid(row = 0, column = 0, padx=10, pady=4)
+    btns[1].grid(row = 1, column = 0, padx=10, pady=4)
+    btns[2].grid(row = 0, column = 1, padx=10, pady=4)
+    btns[3].grid(row = 1, column = 1, padx=10, pady=4)
+    btns[4].grid(row = 0, column = 2, padx=10, pady=4)
+    btns[5].grid(row = 1, column = 2, padx=10, pady=4)
+    root.mainloop()
+
 if __name__ == '__main__':
     fid = open(NMAP_FILE, "wb")
     buf = bytearray(RGB_NPIX)
@@ -407,6 +429,11 @@ if __name__ == '__main__':
     sq = mp.Process(target=sound_process, args=(sound_q,))
     sq.daemon = True
     sq.start()
+
+    action_q = mp.Queue(2)
+    guip = mp.Process(target=gui_process, args=(action_q,))
+    guip.daemon = True
+    guip.start()
 
     while True:
         tp = mp.Process(target=thermal_process, args=(sound_q,storage_q,))

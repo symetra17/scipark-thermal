@@ -265,7 +265,7 @@ class insight_thermal_analyzer(object):
         cv2.drawContours(im_8, contours, -1, (255,255,255))
         if len(contours) > 0:
             self.alarm = RECORD_EXTEND_T
-            if tmax < 40.1:
+            if tmax < 45.1:
                 if not self.sound_q.full():
                     self.sound_q.put(0)
 

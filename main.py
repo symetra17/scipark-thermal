@@ -436,7 +436,7 @@ def gui_process(action_q):
 
     root=tk.Tk()
     root.wm_attributes("-topmost", 1)
-    root.geometry("+970+960")
+    root.geometry("+1700+960")
     root.overrideredirect(True) # removes title bar
     btns = []
     btns.append(tk.Button(root,text='THD+',command=thd_up))

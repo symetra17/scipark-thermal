@@ -81,9 +81,10 @@ class insight_thermal_analyzer(object):
         self.map = mmap.mmap(self.fid.fileno(), 0)
         self.title = 'Hong KONG Science and Technology Park Visitors Fever Monitoring System'
         cv2.namedWindow(self.title, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+        cv2.namedWindow('RGB', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
         buf = np.empty((SCR_HEIGHT, SCR_WIDTH, 3), dtype=np.uint8)
         cv2.imshow(self.title, buf)
-        cv2.resizeWindow('', (SCR_WIDTH,SCR_HEIGHT))
+        cv2.resizeWindow(self.title, (SCR_WIDTH,SCR_HEIGHT))
         self.hour_dir = ''
         self.alarm = 0
         self.sound_q = sn_q
@@ -225,7 +226,7 @@ class insight_thermal_analyzer(object):
                 y.append(pt[m][0][1])
             lb_xpos = np.array(x).max()
             if lb_xpos > 350:
-                lb_xpos = np.array(x).max() - 30
+                lb_xpos = np.array(x).max() - 35
             lb_ypos = np.array(y).max()
             cv2.rectangle(img8, (lb_xpos, lb_ypos-12), (lb_xpos+35, lb_ypos+1), 
                                                 (128,128,128), cv2.FILLED)
@@ -318,7 +319,8 @@ class insight_thermal_analyzer(object):
                     (15, 100), self.font, 1, (0,255,255), 2, cv2.LINE_AA)
         self.scr_buff[800:800+self.logo.shape[0], 1600:1600+self.logo.shape[1], :] /= 2
         self.scr_buff[800:800+self.logo.shape[0], 1600:1600+self.logo.shape[1], :] += self.logo/2
-        cv2.imshow(self.title, self.scr_buff)
+        cv2.imshow(self.title, self.scr_buff[:,0:SCR_WIDTH/2,:])
+        cv2.imshow('RGB', self.scr_buff[:,SCR_WIDTH/2:,:])
         key = cv2.waitKey(10)
         if key & 0xff == ord('+'):
             self.thd += 3
@@ -434,7 +436,7 @@ def gui_process(action_q):
 
     root=tk.Tk()
     root.wm_attributes("-topmost", 1)
-    root.geometry("+970+950")
+    root.geometry("+970+960")
     root.overrideredirect(True) # removes title bar
     btns = []
     btns.append(tk.Button(root,text='THD+',command=thd_up))

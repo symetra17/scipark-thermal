@@ -185,7 +185,7 @@ class insight_thermal_analyzer(object):
                 break
 
     def get_raw_image(self):
-        NAVG = 3
+        NAVG = 2
         acm32 = np.zeros((THERMAL_HEIGHT,THERMAL_WIDTH), dtype=np.uint32)
         for p in range(NAVG):
             val = self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
@@ -249,17 +249,17 @@ class insight_thermal_analyzer(object):
 
         test = False
         if not test:
-            #t0 = time.time()
             self.get_raw_image()
-            #print int(1000*(time.time()-t0)),'ms'
         else:
             self.np_img_16 = cv2.imread('ir_test_02.jpg',0).astype(np.uint16)
             self.np_img_16 = self.np_img_16 * 200
         contours = self.thresholding()
         f_img = self.np_img_16.astype(np.float)
-        f_img = f_img - f_img.min()
-        fmax = f_img.max()/255.0
-        f_img = f_img/fmax 
+        t0 = time.time()
+        fmin = np.percentile(f_img, 0.1)
+        fmax = np.percentile(f_img, 99.9)+50
+        f_img = np.interp(f_img, [fmin,fmax],[0.0,255.0])
+        print int(1000*(time.time()-t0)),'ms'
         im_8 = f_img.astype(np.uint8)
         tmax = self.correct_temp(self.np_img_16.max())
         im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_JET)

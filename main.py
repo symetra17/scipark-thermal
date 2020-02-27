@@ -35,7 +35,7 @@ RGB_NPIX = RGB_SHAPE[0] * RGB_SHAPE[1] * RGB_SHAPE[2]
 SCR_WIDTH = 1900
 SCR_HEIGHT = 900
 COX_MODEL = 'CG'
-COLOR_STYLE=='BW'
+COLOR_STYLE ='BW'
 
 storage_q = mp.Queue(2*RECORD_EXTEND_T+10)
 buf_q = collections.deque(maxlen=RECORD_EXTEND_T)

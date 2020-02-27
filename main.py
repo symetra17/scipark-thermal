@@ -253,7 +253,7 @@ class insight_thermal_analyzer(object):
         else:
             self.np_img_16 = cv2.imread('ir_test_02.jpg',0).astype(np.uint16)
             self.np_img_16 = self.np_img_16 * 200
-
+        t0=time.time()
         contours = self.thresholding()
 
         f_img = self.np_img_16.astype(np.float)
@@ -263,9 +263,10 @@ class insight_thermal_analyzer(object):
         tmax = self.correct_temp(self.np_img_16.max())
         im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_JET)
         cv2.drawContours(im_8, contours, -1, (255,255,255))
+        print int(1000*(time.time()-t0)),'ms'
         if len(contours) > 0:
             self.alarm = RECORD_EXTEND_T
-            if tmax < 45.1:
+            if tmax < 42.1:
                 if not self.sound_q.full():
                     self.sound_q.put(0)
 
@@ -427,7 +428,7 @@ def gui_process(action_q):
 
     root=tk.Tk()
     root.wm_attributes("-topmost", 1)
-    root.geometry("+820+30")
+    root.geometry("+970+950")
     root.overrideredirect(True) # removes title bar
     btns = []
     btns.append(tk.Button(root,text='THD+',command=thd_up))

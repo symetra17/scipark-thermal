@@ -35,10 +35,11 @@ RGB_NPIX = RGB_SHAPE[0] * RGB_SHAPE[1] * RGB_SHAPE[2]
 SCR_WIDTH = 1900
 SCR_HEIGHT = 900
 COX_MODEL = 'CG'
+COLOR_STYLE=='BW'
+
 storage_q = mp.Queue(2*RECORD_EXTEND_T+10)
 buf_q = collections.deque(maxlen=RECORD_EXTEND_T)
 sound_q = mp.Queue(1)
-
 
 if COX_MODEL=='CG':
     THERMAL_WIDTH = 640
@@ -262,8 +263,13 @@ class insight_thermal_analyzer(object):
         print int(1000*(time.time()-t0)),'ms'
         im_8 = f_img.astype(np.uint8)
         tmax = self.correct_temp(self.np_img_16.max())
-        im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_JET)
-        cv2.drawContours(im_8, contours, -1, (255,255,255))
+        if COLOR_STYLE=='BW':
+            im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_BONE)
+            cv2.drawContours(im_8, contours, -1, (0,0,255), thickness=2)
+        else:
+            im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_JET)
+            cv2.drawContours(im_8, contours, -1, (255,255,255), thickness=2)
+
         if len(contours) > 0:
             self.alarm = RECORD_EXTEND_T
             if tmax < 42.1:

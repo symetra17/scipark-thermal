@@ -254,10 +254,10 @@ class HikVision(object):
 
 if __name__ == '__main__':
     ipcam = HikVision()
-    ipaddr = "192.168.1.119"
+    ipaddr = "192.168.88.249"
     ipport = "8000"
     userName = "admin"
-    password = "12345"
+    password = "insight108!"
     ipcam.vis_init(ipaddr, ipport, userName, password)
     ipcam.login()
     while True:

@@ -103,8 +103,9 @@ class insight_thermal_analyzer(object):
         self.mHandle = wintypes.HANDLE()
         self.keepAlive = c_uint()
         self.camData = td.IRF_IR_CAM_DATA_T()
-        self.ushort_ptr = (c_ushort *(THERMAL_WIDTH * THERMAL_HEIGHT ))()
-        self.camData.ir_image = cast(self.ushort_ptr, POINTER(c_ushort))
+        self.m16 = np.zeros((THERMAL_HEIGHT,THERMAL_WIDTH), dtype=np.uint16)
+        self.acm32 = np.zeros((THERMAL_HEIGHT,THERMAL_WIDTH), dtype=np.uint32)
+        self.camData.ir_image = self.m16.ctypes.data_as(POINTER(c_ushort))
         self.camData.image_buffer_size = 4 * THERMAL_WIDTH * THERMAL_HEIGHT
         self.lpsize = (c_byte*8192)()
         self.camData.lpNextData = cast(self.lpsize, POINTER(c_byte))
@@ -188,19 +189,16 @@ class insight_thermal_analyzer(object):
 
     def get_raw_image(self):
         NAVG = 2
-        acm32 = np.zeros((THERMAL_HEIGHT,THERMAL_WIDTH), dtype=np.uint32)
+        self.acm32.fill(0)
         for p in range(NAVG):
             val = self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
             if val == -100:
                 return -1
             elif val != 1:
                 raise Exception("Get IR Images fail errcode=%d"%(val))
-            im16 = np.ndarray(buffer=(c_uint16 * self.npix).from_address(addressof(self.ushort_ptr)), 
-                        dtype=np.uint16,
-                        shape=(THERMAL_HEIGHT, THERMAL_WIDTH))
-            acm32 += im16
-        acm32 = acm32/NAVG
-        self.np_img_16 = acm32.astype(np.uint16)
+            self.acm32 += self.m16
+        self.acm32 = self.acm32/NAVG
+        self.np_img_16 = self.acm32.astype(np.uint16)
 
     def thresholding(self):
         b_img = self.np_img_16.copy()

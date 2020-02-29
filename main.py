@@ -390,7 +390,7 @@ def rgb_capture_process(ipaddr):
     ipcam = hikvision.HikVision()
     ipport = "8000"
     userName = "admin"
-    password = "12345"
+    password = "insight108!"
     ipcam.vis_init(ipaddr, ipport, userName, password)
     ipcam.login()
     while True:

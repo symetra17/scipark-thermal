@@ -30,7 +30,7 @@ AUDIO_FILE = 'doodoo.wav'      # sample rate 16KHz
 RGB_IP = "192.168.88.249"
 THERMAL_IP = "192.168.88.253"
 NMAP_FILE = "sharedmem.dat"
-RGB_SHAPE = (1080,1920,3)
+RGB_SHAPE = (960,1280,3)
 RGB_NPIX = RGB_SHAPE[0] * RGB_SHAPE[1] * RGB_SHAPE[2]
 SCR_WIDTH = 1900
 SCR_HEIGHT = 900
@@ -92,6 +92,8 @@ class insight_thermal_analyzer(object):
         self.logo = cv2.imread('logo.png')
         self.scr_buff = np.empty((SCR_HEIGHT, SCR_WIDTH, 3), dtype=np.uint8)   # preallocate this array to speed up
         self.action_q = action_q
+        #self.rgb_buf = np.zeros(RGB_SHAPE, dtype=np.uint8)
+        self.src_rgb = np.zeros((SCR_HEIGHT,SCR_WIDTH/2,3),dtype=np.uint8)
 
     def init_cam_vari(self,ip,port):
         self.npix = THERMAL_WIDTH * THERMAL_HEIGHT
@@ -255,11 +257,11 @@ class insight_thermal_analyzer(object):
             self.np_img_16 = self.np_img_16 * 200
         contours = self.thresholding()
         f_img = self.np_img_16.astype(np.float)
-        t0 = time.time()
+        #t0 = time.time()
         fmin = np.percentile(f_img, 0.1)
         fmax = np.percentile(f_img, 99.9)+50
         f_img = np.interp(f_img, [fmin,fmax],[0.0,255.0])
-        print int(1000*(time.time()-t0)),'ms'
+        #print int(1000*(time.time()-t0)),'ms'
         im_8 = f_img.astype(np.uint8)
         tmax = self.correct_temp(self.np_img_16.max())
         if COLOR_STYLE=='BW':
@@ -285,15 +287,14 @@ class insight_thermal_analyzer(object):
                     self.corrPara.emissivity,
                     tmax), 
                     (15, 30), self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
-
+        
         rgb = np.frombuffer(self.map[0:RGB_NPIX], dtype=np.uint8)
         rgb = rgb.reshape(RGB_SHAPE)
-        rgb = cv2.resize(rgb, (SCR_WIDTH/2, SCR_HEIGHT), 
+        cv2.resize(rgb, (SCR_WIDTH/2, SCR_HEIGHT), self.src_rgb, 
                                             interpolation=cv2.INTER_NEAREST)
-
         self.scr_buff[:,0:SCR_WIDTH/2,:]= im_8
-        self.scr_buff[:,SCR_WIDTH/2:,:] = rgb
-
+        self.scr_buff[:,SCR_WIDTH/2:,:] = self.src_rgb
+        
         ts_str = datetime.now().strftime("%y%m%d-%H%M%S-%f")[:-3]
         fn = opjoin('record', ts_str + '.jpg')
 
@@ -315,8 +316,10 @@ class insight_thermal_analyzer(object):
             if space_mb < 1000:
                 cv2.putText(self.scr_buff, 'Storage is full',
                     (15, 100), self.font, 1, (0,255,255), 2, cv2.LINE_AA)
-        self.scr_buff[800:800+self.logo.shape[0], 1600:1600+self.logo.shape[1], :] /= 2
-        self.scr_buff[800:800+self.logo.shape[0], 1600:1600+self.logo.shape[1], :] += self.logo/2
+        logo_px = 1650
+        logo_py = 740
+        self.scr_buff[logo_py:logo_py+self.logo.shape[0], logo_px:logo_px+self.logo.shape[1], :] /= 2
+        self.scr_buff[logo_py:logo_py+self.logo.shape[0], logo_px:logo_px+self.logo.shape[1], :] += self.logo/2
         cv2.imshow(self.title, self.scr_buff[:,0:SCR_WIDTH/2,:])
         cv2.imshow('RGB', self.scr_buff[:,SCR_WIDTH/2:,:])
         key = cv2.waitKey(10)

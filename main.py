@@ -321,7 +321,8 @@ class insight_thermal_analyzer(object):
         self.scr_buff[logo_py:logo_py+self.logo.shape[0], logo_px:logo_px+self.logo.shape[1], :] /= 2
         self.scr_buff[logo_py:logo_py+self.logo.shape[0], logo_px:logo_px+self.logo.shape[1], :] += self.logo/2
         cv2.imshow(self.title, self.scr_buff[:,0:SCR_WIDTH/2,:])
-        cv2.imshow('RGB', self.scr_buff[:,SCR_WIDTH/2:,:])
+        #cv2.imshow('RGB', self.scr_buff[:,SCR_WIDTH/2:,:])
+        cv2.imshow('RGB', rgb)
         key = cv2.waitKey(10)
         if key & 0xff == ord('+'):
             self.thd += 3

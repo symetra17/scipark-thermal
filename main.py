@@ -30,7 +30,7 @@ AUDIO_FILE = 'doodoo.wav'      # sample rate 16KHz
 RGB_IP = "192.168.88.249"
 THERMAL_IP = "192.168.88.253"
 NMAP_FILE = "sharedmem.dat"
-RGB_SHAPE = (960,1280,3)
+RGB_SHAPE = (1080,1920,3)
 RGB_NPIX = RGB_SHAPE[0] * RGB_SHAPE[1] * RGB_SHAPE[2]
 SCR_WIDTH = 1900
 SCR_HEIGHT = 900
@@ -84,6 +84,7 @@ class insight_thermal_analyzer(object):
         cv2.namedWindow('RGB', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
         buf = np.empty((SCR_HEIGHT, SCR_WIDTH, 3), dtype=np.uint8)
         cv2.imshow(self.title, buf)
+        cv2.imshow('RGB', buf)
         cv2.resizeWindow(self.title, (SCR_WIDTH,SCR_HEIGHT))
         self.hour_dir = ''
         self.alarm = 0
@@ -290,6 +291,7 @@ class insight_thermal_analyzer(object):
         
         rgb = np.frombuffer(self.map[0:RGB_NPIX], dtype=np.uint8)
         rgb = rgb.reshape(RGB_SHAPE)
+        rgb_full=rgb.copy()
         cv2.resize(rgb, (SCR_WIDTH/2, SCR_HEIGHT), self.src_rgb, 
                                             interpolation=cv2.INTER_NEAREST)
         self.scr_buff[:,0:SCR_WIDTH/2,:]= im_8
@@ -321,8 +323,7 @@ class insight_thermal_analyzer(object):
         self.scr_buff[logo_py:logo_py+self.logo.shape[0], logo_px:logo_px+self.logo.shape[1], :] /= 2
         self.scr_buff[logo_py:logo_py+self.logo.shape[0], logo_px:logo_px+self.logo.shape[1], :] += self.logo/2
         cv2.imshow(self.title, self.scr_buff[:,0:SCR_WIDTH/2,:])
-        #cv2.imshow('RGB', self.scr_buff[:,SCR_WIDTH/2:,:])
-        cv2.imshow('RGB', rgb)
+        cv2.imshow('RGB', rgb_full)
         key = cv2.waitKey(10)
         if key & 0xff == ord('+'):
             self.thd += 3

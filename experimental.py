@@ -104,9 +104,10 @@ class insight_thermal_analyzer(object):
         self.mHandle = wintypes.HANDLE()
         self.keepAlive = c_uint()
         self.camData = td.IRF_IR_CAM_DATA_T()
-        self.ushort_ptr = (c_ushort *(THERMAL_WIDTH * THERMAL_HEIGHT ))()
+        #self.ushort_ptr = (c_ushort *(THERMAL_WIDTH * THERMAL_HEIGHT ))()
         #self.camData.ir_image = cast(self.ushort_ptr, POINTER(c_ushort))
-        self.m16 = np.zeros((480,640),dtype=np.uint16)
+        self.m16 = np.zeros((THERMAL_HEIGHT,THERMAL_WIDTH), dtype=np.uint16)
+        self.acm32 = np.zeros((THERMAL_HEIGHT,THERMAL_WIDTH), dtype=np.uint32)
         self.camData.ir_image = self.m16.ctypes.data_as(POINTER(c_ushort))
 		
         self.camData.image_buffer_size = 4 * THERMAL_WIDTH * THERMAL_HEIGHT
@@ -192,7 +193,7 @@ class insight_thermal_analyzer(object):
 
     def get_raw_image(self):
         NAVG = 2
-        acm32 = np.zeros((THERMAL_HEIGHT,THERMAL_WIDTH), dtype=np.uint32)
+        self.acm32.fill(0)
         for p in range(NAVG):
 			
             val = self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
@@ -200,14 +201,9 @@ class insight_thermal_analyzer(object):
                 return -1
             elif val != 1:
                 raise Exception("Get IR Images fail errcode=%d"%(val))
-            #im16 = np.ndarray(buffer=(c_uint16 * self.npix).from_address(addressof(self.ushort_ptr)), 
-            #            dtype=np.uint16,
-            #            shape=(THERMAL_HEIGHT, THERMAL_WIDTH))
-
-						
-            acm32 += self.m16
-        acm32 = acm32/NAVG
-        self.np_img_16 = acm32.astype(np.uint16)
+            self.acm32 += self.m16
+        self.acm32 = self.acm32/NAVG
+        self.np_img_16 = self.acm32.astype(np.uint16)
 
     def thresholding(self):
         b_img = self.np_img_16.copy()
@@ -262,9 +258,9 @@ class insight_thermal_analyzer(object):
         else:
             self.np_img_16 = cv2.imread('ir_test_02.jpg',0).astype(np.uint16)
             self.np_img_16 = self.np_img_16 * 200
-        contours = self.thresholding()
-        f_img = self.np_img_16.astype(np.float)
         t0 = time.time()
+        contours = self.thresholding()
+        f_img = self.np_img_16.astype(np.float)       
         fmin = np.percentile(f_img, 0.1)
         fmax = np.percentile(f_img, 99.9)+50
         f_img = np.interp(f_img, [fmin,fmax],[0.0,255.0])
@@ -285,7 +281,7 @@ class insight_thermal_analyzer(object):
                     self.sound_q.put(0)
 
         self.draw_contours(im_8, self.np_img_16, contours)
-
+ 
         im_8 = cv2.resize(im_8, (SCR_WIDTH/2,SCR_HEIGHT), 
                                             interpolation=cv2.INTER_NEAREST)
         cv2.rectangle(im_8, (10, 10), (440, 40), (128,128,128), cv2.FILLED)

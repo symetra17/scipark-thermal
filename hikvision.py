@@ -110,6 +110,7 @@ class HikVision(object):
         
     def setClientInfo(self):
         self.ClientInfo = td.NET_DVR_CLIENTINFO()
+        self.ClientInfo.lChannel = 1
         self.ClientInfo.hPlayWnd = None
         if self.streamChnl == 'sub':
             # 0  # If 31st bit is 0, it means connecting main stream, 1 means sub stream. Bit 0~bit 30 are used for link mode: 0-TCP, 1-UDP, 2-multicast, 3-RTP
@@ -138,16 +139,20 @@ class HikVision(object):
     
     def start(self):
         self.lRealPlayHandle = 0
+        
+        #int NET_DVR_RealPlay_V30(int iUserID, ref NET_DVR_CLIENTINFO lpClientInfo, 
+        #                                           REALDATACALLBACK fRealDataCallBack_V30, 
+        #                                           IntPtr pUser, 
+        #                                           UInt32 bBlocked);
         self.netsdk.NET_DVR_RealPlay_V30.argtypes = [c_long, POINTER(td.NET_DVR_CLIENTINFO), 
-                                                     POINTER(td.FREALDATACALLBACK), c_void_p, c_bool]
+                                                     POINTER(td.FREALDATACALLBACK), c_void_p, c_uint32]
 
-        self.lRealPlayHandle = self.netsdk.NET_DVR_RealPlay_V30(self.lUserID, self.ClientInfo, None, None, 0)
-
+        self.lRealPlayHandle = self.netsdk.NET_DVR_RealPlay_V30(self.lUserID, self.ClientInfo, 
+                                                                    None, None, 0)        
         if self.lRealPlayHandle < 0:
             print('error realplayhandle < 0')
             self.logout()
             quit()
-
         self.netsdk.NET_DVR_SetRealDataCallBack.argtypes = [c_long, 
                                                         td.FREALDATACALLBACK, wintypes.DWORD]
         result = self.netsdk.NET_DVR_SetRealDataCallBack(self.lRealPlayHandle,
@@ -191,12 +196,12 @@ class HikVision(object):
                              dtype=np.uint8, shape=(frameInfo.lHeight, frameInfo.lWidth, 3))
             RGB = rgb.copy()
             self.yuv2rgb.FreeMem()
-            if frameInfo.dwFrameNum % 2 == 0:
+            if True or frameInfo.dwFrameNum % 2 == 0:
                 size = RGB.shape[0] * RGB.shape[1] * RGB.shape[2]
-                self.map[0:(size)] = RGB.tobytes()
+                #self.map[0:(size)] = RGB.tobytes()
             
-            #cv2.imshow('',RGB)
-            #cv2.waitKey(10)
+            cv2.imshow('',RGB)
+            cv2.waitKey(10)
 
         except Exception as e:
             print('Exception in decode callback', e.message)
@@ -217,38 +222,41 @@ class HikVision(object):
                         print("2: Error:%r" % self.playCtrl.PlayM4_GetLastError(self.lPort[0]))
                         return 0
                     
-                    b_res = self.playCtrl.PlayM4_OpenStreamEx(self.lPort[0], pBuffer, dwBufSize, 1024 * 100000)
+                    b_res = self.playCtrl.PlayM4_OpenStream(self.lPort[0], pBuffer, dwBufSize, 1024 * 100000)
                     if not b_res:
                         print("3: Error:%r" % self.playCtrl.PlayM4_GetLastError(self.lPort[0]))
-                        return 0
+                        quit()
 
                     b_res = self.playCtrl.PlayM4_SetDecCBStream(self.lPort[0], 1)  # 1 is Video Stream
                     if not b_res:
                         print("4: Error:%r" % self.playCtrl.PlayM4_GetLastError(self.lPort[0]))
+                        quit()
                     
                     if not self.playCtrl.PlayM4_SetDecodeFrameType(self.lPort[0], td.DECODE_NORMAL):
                         print("5: Error:%r" % self.playCtrl.PlayM4_GetLastError(self.lPort[0]))
+                        quit()
 
                     if not self.playCtrl.PlayM4_SetDecCallBack(self.lPort[0], self.fSetDecCallBack):
                         print("7: Error:%r" % self.playCtrl.PlayM4_GetLastError(self.lPort[0]))
-                    
+                        quit()
                     if not self.playCtrl.PlayM4_Play(self.lPort[0], hWnd):
                         print("8: Error:%r" % self.playCtrl.PlayM4_GetLastError(self.lPort[0]))
-                        return 0
+                        quit()
                     
             elif dwDataType == td.NET_DVR_STREAMDATA:
                 if dwBufSize > 0 & self.lPort[0] != -1:                    
                     # Put encoded video streaming package into decoder
                     b_res = self.playCtrl.PlayM4_InputData(self.lPort[0], pBuffer, dwBufSize)
                     if not b_res:
-                        #print ('Error in PlayM4_InputData')
-                        return 0
+                        print ('Error in PlayM4_InputData')
+                        quit()
             return 1
         except Exception as e:
             print('Exception in real callback', e.message)
+            quit()
 
     def py_ExceptionCallBack(self, dwType, lUserID, lHandle, pUser):
-        print("NET_DVR Error ERROR CODE: %r" % self.netsdk.NET_DVR_GetLastError())
+        print("NET_DVR ERROR CODE: %r" % self.netsdk.NET_DVR_GetLastError())
         return 0
 
 

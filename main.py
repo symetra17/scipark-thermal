@@ -467,6 +467,15 @@ if __name__ == '__main__':
         os.mkdir('record')
     except:
         pass
+
+    import glob
+    cwd = os.getcwd()
+    files = glob.glob(os.path.join(cwd, 'record','*.*'))
+    for f in files:
+        tf = os.path.getmtime(f)
+        if int(time.time() - tf)/(60*60) > 24:
+            os.remove(f)
+
     sav_proc = mp.Process(target=saving_image_process, args=(storage_q,))
     sav_proc.daemon = True
     sav_proc.start()

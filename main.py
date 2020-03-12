@@ -55,7 +55,30 @@ def sound_process(snd_q):
         sd.play(audio_array, 16000)
         sd.wait()
 
+class reference_point(object):
+
+    def __init__(self):
+        self.x = 0
+        self.y = 0
+        self.temp_c = 0.0
+        self.raw_val = 0
+
+    def update(self, img):
+        self.raw_val = img[self.y-2:self.y+2, self.x-2:self.x+2].mean()
+
 class insight_thermal_analyzer(object):
+
+    def calibrate(self):
+        
+        #t_low = self.dll.ConvertRawToTempCG(byref(self.camData.ir_image), 
+        #                        self.corrPara, int(self.ref_low.rawval))
+
+        #out_temp_c = np.interp(f_img, [self.ref_low.raw_val, self.ref_high.raw_val],
+        #                    [35.0, 42.0])
+
+        #emissitivity_different
+
+
 
     def correct_temp(self, ir_reading):
         if COX_MODEL=='CG':
@@ -95,6 +118,8 @@ class insight_thermal_analyzer(object):
         self.action_q = action_q
         #self.rgb_buf = np.zeros(RGB_SHAPE, dtype=np.uint8)
         self.src_rgb = np.zeros((SCR_HEIGHT,SCR_WIDTH/2,3),dtype=np.uint8)
+        self.ref_low = reference_point()
+        self.ref_high = reference_point()
 
     def init_cam_vari(self,ip,port):
         self.npix = THERMAL_WIDTH * THERMAL_HEIGHT
@@ -116,6 +141,7 @@ class insight_thermal_analyzer(object):
         self.camData.dwPosition = 0
         if COX_MODEL=='CG':
             self.corrPara = td.IRF_TEMP_CORRECTION_PAR_T_CG()
+            self.corrPara.offset = 0
         else:
             self.corrPara = td.IRF_TEMP_CORRECTION_PAR_T()
         self.corrPara.atmTemp = 25.0
@@ -256,6 +282,10 @@ class insight_thermal_analyzer(object):
         else:
             self.np_img_16 = cv2.imread('ir_test_02.jpg',0).astype(np.uint16)
             self.np_img_16 = self.np_img_16 * 200
+
+        ref_low.update(self.np_img_16)
+        ref_high.update(self.np_img_16)
+
         contours = self.thresholding()
         f_img = self.np_img_16.astype(np.float)
         #t0 = time.time()

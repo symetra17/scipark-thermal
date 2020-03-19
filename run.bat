@@ -1,2 +1,2 @@
-c:\python27\python main.py
+c:\python37-32\python main.py
 pause

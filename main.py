@@ -17,19 +17,17 @@ import hikvision
 import multiprocessing as mp
 import psutil
 import collections
-import wave
-import scipy.io.wavfile
-import sounddevice as sd
 import tkinter as tk
 import random
 import reference_pair as rp
+import sound_process
+import pyftdi.serialext
 
 # Recording extension header and tail number of frame
 # when an overtemperature event occur, a few seconds of record ahead of the 
 # event would be saved, after the event, a few seconds of record folowing
 # the event would also be saved.
 RECORD_EXTEND_T = 20   
-AUDIO_FILE = 'doodoo.wav'      # sample rate 16KHz
 RGB_IP = "192.168.88.249"
 THERMAL_IP = "192.168.88.253"
 NMAP_FILE = "sharedmem.dat"
@@ -39,17 +37,8 @@ SCR_WIDTH = 1900
 SCR_HEIGHT = 900
 COX_MODEL = 'CX'
 COLOR_STYLE ='BW'
-NO_HARDWARE_TEST = True
+NO_HARDWARE_TEST = False
 
-
-dll_path = opjoin('dll', 'CG_ThermalCamDll_2018.dll')
-try:
-    dll = windll.LoadLibrary(dll_path)
-except:
-    print 'Could not load Thermal camera DLL.'
-    quit()
-
-dll.GetCorrectedTemp.restype = c_float
 
 storage_q = mp.Queue(2*RECORD_EXTEND_T+10)
 buf_q = collections.deque(maxlen=RECORD_EXTEND_T)
@@ -62,12 +51,6 @@ else:
     THERMAL_WIDTH = 384
     THERMAL_HEIGHT = 288
 
-def sound_process(snd_q):
-    a, audio_array = scipy.io.wavfile.read(AUDIO_FILE)
-    while True:
-        snd_q.get()
-        sd.play(audio_array, 16000)
-        sd.wait()
 
 class insight_thermal_analyzer(object):
 
@@ -77,20 +60,31 @@ class insight_thermal_analyzer(object):
             return val
 
         if COX_MODEL=='CG':
-            strchr = dll.ConvertRawToTempCG
+            strchr = self.dll.ConvertRawToTempCG
             strchr.restype = c_float
-            res = dll.ConvertRawToTempCG(byref(self.camData.ir_image), self.corrPara, int(ir_reading))
+            res = self.dll.ConvertRawToTempCG(byref(self.camData.ir_image), self.corrPara, int(ir_reading))
             return res
         else:
             #return 0.321
             # this function requires different number of input arguments in 2018 and 2015 dll
             # GetCorrectedTemp
-            t_c = dll.GetCorrectedTemp(byref(self.pfloat_lut), 
+            t_c = self.dll.GetCorrectedTemp(byref(self.pfloat_lut), 
                                         self.corrPara, int(ir_reading))
             
             return t_c
 
-    def __init__(self, ip, port, sn_q, sto_q, action_q):
+    def __init__(self, ip, port, sn_q, sto_q, action_q, sen_q):
+
+        print('Loading Thermal camera library')
+        dll_path = opjoin('dll', 'CG_ThermalCamDll_2018.dll')
+        try:
+            self.dll = windll.LoadLibrary(dll_path)
+            #self.dll = cdll.LoadLibrary(dll_path)
+        except:
+            print('Could not load Thermal camera DLL.')
+            quit()
+        print('Completed')
+        self.dll.GetCorrectedTemp.restype = c_float
 
         self.init_cam_vari(ip,port)
         self.load_app_settings()
@@ -104,8 +98,8 @@ class insight_thermal_analyzer(object):
         buf = np.empty((480, 640, 3), dtype=np.uint8)
         cv2.imshow(self.title, buf)
         cv2.imshow('RGB', buf)
-        cv2.resizeWindow(self.title, (640, 480))
-        cv2.resizeWindow('RGB', (640,480))
+        cv2.resizeWindow(self.title, (800, 600))
+        cv2.resizeWindow('RGB', (800,600))
         self.hour_dir = ''
         self.alarm = 0
         self.sound_q = sn_q
@@ -113,16 +107,16 @@ class insight_thermal_analyzer(object):
         self.logo = cv2.imread('logo.png')
         self.scr_buff = np.empty((SCR_HEIGHT, SCR_WIDTH, 3), dtype=np.uint8)   # preallocate this array to speed up
         self.action_q = action_q
+        self.sen_q = sen_q
         #self.rgb_buf = np.zeros(RGB_SHAPE, dtype=np.uint8)
-        self.src_rgb = np.zeros((SCR_HEIGHT,SCR_WIDTH/2,3),dtype=np.uint8)
+        self.src_rgb = np.zeros((SCR_HEIGHT,SCR_WIDTH//2,3),dtype=np.uint8)
         self.ref_pair = rp.reference_pair()
         self.USE_BLACK_BODY = True
-        
+
     def init_cam_vari(self,ip,port):
         self.npix = THERMAL_WIDTH * THERMAL_HEIGHT
         self.ip = ip
         self.port = port
-        self.dll_2015 = windll.LoadLibrary(opjoin('dll', 'ThermalCamDll_2015.dll'))
         self.mHandle = wintypes.HANDLE()
         self.keepAlive = c_uint()
         self.camData = td.IRF_IR_CAM_DATA_T()
@@ -147,8 +141,8 @@ class insight_thermal_analyzer(object):
         self.corrPara.atmTrans = 1.0
         self.corrPara.emissivity = 1.0
         self.pfloat_lut = (c_float*65536)()
-        dll.SendCameraMessage.restype = c_short
-        dll.SendCameraMessage.argtypes = [wintypes.HANDLE, 
+        self.dll.SendCameraMessage.restype = c_short
+        self.dll.SendCameraMessage.argtypes = [wintypes.HANDLE, 
                                                 POINTER(c_uint), 
                                                 c_int,
                                                 c_ushort,
@@ -170,10 +164,10 @@ class insight_thermal_analyzer(object):
                 self.corrPara.emissivity = float(fid.read())
                 fid.close()
             except Exception as e:
-                print e.message
+                print(e.message)
         fid = open(r'TempMapTable_L.bin','rb')
         x = fid.read()
-        nfloat = len(x)/4
+        nfloat = len(x)//4
         fid.close()
         self.temp_lut = struct.unpack('f'*nfloat, x)
         for n in range(0, 65535):
@@ -181,10 +175,10 @@ class insight_thermal_analyzer(object):
 
     def disconnect(self):
         if self.mHandle.value != None:
-            dll.CloseConnect.restype = c_short
-            dll.CloseConnect.argtypes = [POINTER(wintypes.HANDLE), c_uint]
+            self.dll.CloseConnect.restype = c_short
+            self.dll.CloseConnect.argtypes = [POINTER(wintypes.HANDLE), c_uint]
             try:
-                err = dll.CloseConnect(byref(self.mHandle), self.keepAlive)
+                err = self.dll.CloseConnect(byref(self.mHandle), self.keepAlive)
                 if err == 1:
                     return err
             except Exception as e:
@@ -193,39 +187,49 @@ class insight_thermal_analyzer(object):
     
         
     def connect(self):
-        print "Connecting  ", self.ip, self.port
-        dll.OpenConnect.restype = c_short
-        dll.CloseConnect.restype = c_short
+        print("Connecting",COX_MODEL, self.ip, self.port)
+        self.dll.OpenConnect.restype = c_short
+        self.dll.CloseConnect.restype = c_short
         err = -1
-        val = dll.OpenConnect(byref(self.mHandle), byref(self.keepAlive), 
-                            self.ip, self.port, 2, 1)
+
+        #self.dll.OpenConnect.argtypes = [POINTER(wintypes.HANDLE), 
+        #                                POINTER(wintypes.UINT),
+        #                                wintypes.LPCSTR,
+        #                                wintypes.LPCSTR,
+        #                                c_int, c_int]
+
+        val = self.dll.OpenConnect(byref(self.mHandle), 
+                            byref(self.keepAlive), 
+                            str.encode(self.ip), 
+                            str.encode(self.port),
+                            2, 1)
         if val != 1:
-            print("Could not connect thermal camera")
+            print("Could not connect thermal camera",val)
             return
         self.requestCameraData()
         self.setNUC()
         # Function GetIRImages got to be called twice before it would not return error code
-        dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
-        dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
+        self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
+        self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
         while (self.mHandle != -1):
             try:
                 self.processing()
             except Exception as e:
-                print e
-                print "Thermal ccamera comm reset required", str(datetime.now())
+                print(e)
+                print("Thermal ccamera comm reset required", str(datetime.now()))
                 break
 
     def get_raw_image(self):
         NAVG = 2
         self.acm32.fill(0)
         for p in range(NAVG):
-            val = dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
+            val = self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
             if val == -100:
                 return -1
             elif val != 1:
                 raise Exception("Get IR Images fail errcode=%d"%(val))
             self.acm32 += self.m16
-        self.acm32 = self.acm32/NAVG
+        self.acm32 = self.acm32//NAVG
         self.np_img_16 = self.acm32.astype(np.uint16)
 
     def thresholding(self):
@@ -278,6 +282,14 @@ class insight_thermal_analyzer(object):
                 self.ref_pair.pick_l = True
             elif action=='refh':
                 self.ref_pair.pick_h = True
+            elif action=='ref head':
+                self.ref_pair.pick_head()
+            elif action=='ref head tape':
+                self.ref_pair.pick_head_tape()
+
+        if not self.sen_q.empty():
+            temp_c = self.sen_q.get()
+            self.ref_pair.sensor_feed(temp_c)
 
         if not NO_HARDWARE_TEST:
             self.get_raw_image()
@@ -285,6 +297,7 @@ class insight_thermal_analyzer(object):
             self.np_img_16 = cv2.imread('ir_test_02.jpg',0).astype(np.uint16)
             self.np_img_16 = self.np_img_16 * 200
             self.np_img_16[160,120] = random.randint(16000, 18000)
+            time.sleep(0.03)
 
         self.ref_pair.update(self.np_img_16)
         
@@ -312,9 +325,9 @@ class insight_thermal_analyzer(object):
 
         self.draw_contours(im_8, self.np_img_16, contours)
 
-        im_8 = cv2.resize(im_8, (SCR_WIDTH/2,SCR_HEIGHT), 
+        im_8 = cv2.resize(im_8, (SCR_WIDTH//2,SCR_HEIGHT), 
                                             interpolation=cv2.INTER_NEAREST)
-        cv2.rectangle(im_8, (10, 10), (440, 40), (100,100,100), cv2.FILLED)
+        cv2.rectangle(im_8, (10, 10), (420, 40), (100,100,100), cv2.FILLED)
         cv2.putText(im_8, 'THD %.2f  EMISIV(w/s)%.2f MAX %.2f'%(
                     self.correct_temp(self.thd), 
                     self.corrPara.emissivity,
@@ -327,10 +340,10 @@ class insight_thermal_analyzer(object):
         rgb = np.frombuffer(self.map[0:RGB_NPIX], dtype=np.uint8)
         rgb = rgb.reshape(RGB_SHAPE)
         rgb_full=rgb.copy()
-        cv2.resize(rgb, (SCR_WIDTH/2, SCR_HEIGHT), self.src_rgb, 
+        cv2.resize(rgb, (SCR_WIDTH//2, SCR_HEIGHT), self.src_rgb, 
                                             interpolation=cv2.INTER_NEAREST)
-        self.scr_buff[:,0:SCR_WIDTH/2,:]= im_8
-        self.scr_buff[:,SCR_WIDTH/2:,:] = self.src_rgb
+        self.scr_buff[:,0:SCR_WIDTH//2,:]= im_8
+        self.scr_buff[:,SCR_WIDTH//2:,:] = self.src_rgb
         
         ts_str = datetime.now().strftime("%y%m%d-%H%M%S-%f")[:-3]
         fn = opjoin('record', ts_str + '.jpg')
@@ -349,15 +362,17 @@ class insight_thermal_analyzer(object):
 
             self.alarm -= 1
             hdd = psutil.disk_usage('/')
-            space_mb = hdd.free/(1024*1024)
+            space_mb = hdd.free//(1024*1024)
             if space_mb < 1000:
                 cv2.putText(self.scr_buff, 'Storage is full',
                     (15, 100), self.font, 1, (0,255,255), 2, cv2.LINE_AA)
+                self.cleanup()
+
         logo_px = 1650
         logo_py = 740
-        self.scr_buff[logo_py:logo_py+self.logo.shape[0], logo_px:logo_px+self.logo.shape[1], :] /= 2
-        self.scr_buff[logo_py:logo_py+self.logo.shape[0], logo_px:logo_px+self.logo.shape[1], :] += self.logo/2
-        cv2.imshow(self.title, self.scr_buff[:,0:SCR_WIDTH/2,:])
+        self.scr_buff[logo_py:logo_py+self.logo.shape[0], logo_px:logo_px+self.logo.shape[1], :] //= 2
+        self.scr_buff[logo_py:logo_py+self.logo.shape[0], logo_px:logo_px+self.logo.shape[1], :] += self.logo//2
+        cv2.imshow(self.title, self.scr_buff[:,0:SCR_WIDTH//2,:])
         cv2.imshow('RGB', rgb_full)
         key = cv2.waitKey(10)
         if key & 0xff == ord('+'):
@@ -393,13 +408,13 @@ class insight_thermal_analyzer(object):
         fid.close()
 
     def requestCameraData(self):
-        err = dll.SendCameraMessage(self.mHandle, byref(self.keepAlive),
+        err = self.dll.SendCameraMessage(self.mHandle, byref(self.keepAlive),
                                 td.IRF_MESSAGE_TYPE_T._IRF_REQ_CAM_DATA.value,0,0)
         if err != 1:
             print("send request all cam data message fail errcode =%d "%(err))
             return
         #request stream on_IRF_STREAM_ON
-        err = dll.SendCameraMessage(self.mHandle, byref(self.keepAlive),
+        err = self.dll.SendCameraMessage(self.mHandle, byref(self.keepAlive),
                                 td.IRF_MESSAGE_TYPE_T._IRF_STREAM_ON.value,0,0)
         if err != 1:
             print("send stream on message fail errcode=%d"%(err))
@@ -410,11 +425,11 @@ class insight_thermal_analyzer(object):
         return IRData
     
     def setNUC(self):
-        dll.SendMessageToCamera.restype = c_short
-        dll.SendMessageToCamera.argtypes = [wintypes.HANDLE, POINTER(c_uint), 
+        self.dll.SendMessageToCamera.restype = c_short
+        self.dll.SendMessageToCamera.argtypes = [wintypes.HANDLE, POINTER(c_uint), 
                                 c_int,c_ushort,c_ushort,c_ulong,c_ulong,c_ulong]
         try:
-            err = dll.SendMessageToCamera(self.mHandle, byref(self.keepAlive),
+            err = self.dll.SendMessageToCamera(self.mHandle, byref(self.keepAlive),
                                   td.IRF_MESSAGE_TYPE_T._IRF_SET_CAM_DATA.value,
                                   td.CAMMAND_CODE.CMD_NUC.value, 7, 0, 0, 0)
             if err == 1:
@@ -433,11 +448,24 @@ class insight_thermal_analyzer(object):
 
     def mouse_callback(self, event, x, y, flags, param):
         if event == 1:
-            h, w = self.scr_buff[:,0:SCR_WIDTH/2,:].shape[0:2]
+            h, w = self.scr_buff[:,0:SCR_WIDTH//2,:].shape[0:2]
             self.ref_pair.click({'x ratio':float(x)/w, 'y ratio':float(y)/h})
         elif event == 2:
             self.ref_pair.pick_l = False
             self.ref_pair.pick_h = False
+            self.ref_pair.pick_head = False
+
+    def cleanup(self):
+        import glob
+        print('Removing old image records')
+        cwd = os.getcwd()
+        files = glob.glob(os.path.join(cwd, 'record','*.*'))
+        for f in files:
+            tf = os.path.getmtime(f)
+            if int(time.time() - tf)//(60*60) > 6:
+                print('Removing ', f)
+                os.remove(f)
+        print('Completed')
 
 def rgb_capture_process(ipaddr):
     ipcam = hikvision.HikVision()
@@ -454,20 +482,20 @@ def saving_image_process(st_q):
         a,b = st_q.get()
         # free space check
         hdd = psutil.disk_usage('/')
-        space_mb = hdd.free/(1024*1024)
+        space_mb = hdd.free//(1024*1024)
         if space_mb > 1000:
             cv2.imwrite(a,b)
         time.sleep(0.05)
 
-def thermal_process(sn_q, sto_q, acn_q):
-    cox = insight_thermal_analyzer(THERMAL_IP, "15001", sn_q, sto_q, acn_q)
+def thermal_process(sn_q, sto_q, acn_q, sns_q):
+    cox = insight_thermal_analyzer(THERMAL_IP, "15001", sn_q, sto_q, acn_q, sns_q)
     if NO_HARDWARE_TEST:
         while True:
             try:
                 cox.processing()
             except Exception as e:
-                print e
-                print "Thermal ccamera comm reset required", str(datetime.now())
+                print(e)
+                print("Thermal camera comm reset required", str(datetime.now()))
                 break
     else:
         cox.connect()
@@ -502,9 +530,17 @@ def gui_process(action_q):
         if not action_q.full():
             action_q.put('refh')
 
+    def pick_ref_head():
+        if not action_q.full():
+            action_q.put('ref head')
+
+    def pick_ref_tape_on_head():
+        if not action_q.full():
+            action_q.put('ref head tape')
+
     root=tk.Tk()
     root.wm_attributes("-topmost", 1)
-    root.geometry("+1650+960")
+    root.geometry("+1550+960")
     root.overrideredirect(True) # removes title bar
     btns = []
     btns.append(tk.Button(root,text='THD+',command=thd_up))
@@ -513,17 +549,48 @@ def gui_process(action_q):
     btns.append(tk.Button(root,text='OFFSET-',command=offset_down))
     btns.append(tk.Button(root,text='REF L',command=pick_ref_l))
     btns.append(tk.Button(root,text='REF H',command=pick_ref_h))
+    btns.append(tk.Button(root,text='REF HEAD',command=pick_ref_head))
+    btns.append(tk.Button(root,text='TAPE ON HEAD', command=pick_ref_tape_on_head))
 
     for item in btns:
-        item.config(width=9)
-    btns[0].grid(row = 0, column = 0, padx=8, pady=4)
-    btns[1].grid(row = 1, column = 0, padx=8, pady=4)
-    btns[2].grid(row = 0, column = 2, padx=8, pady=4)
-    btns[3].grid(row = 1, column = 2, padx=8, pady=4)
-    btns[4].grid(row = 0, column = 3, padx=8, pady=4)
-    btns[5].grid(row = 1, column = 3, padx=8, pady=4)
+        item.config(width=10)
+    btns[0].grid(row=0, column=0, padx=6, pady=4)
+    btns[1].grid(row=1, column=0, padx=6, pady=4)
+    btns[2].grid(row=0, column=2, padx=6, pady=4)
+    btns[3].grid(row=1, column=2, padx=6, pady=4)
+    btns[4].grid(row=0, column=3, padx=6, pady=4)
+    btns[5].grid(row=1, column=3, padx=6, pady=4)
+    btns[6].grid(row=0, column=4, padx=6, pady=4)
+    btns[7].grid(row=1, column=4, padx=6, pady=4)
     root.mainloop()
 
+def sensor_proc(sensor_q):
+    while True:
+        try:
+            print("Establishing USB connection")
+            blackbody = pyftdi.serialext.serial_for_url('ftdi://ftdi:4232h/0', baudrate=57600)
+            data = bytes()
+            while True:
+                try:
+                    data += blackbody.read(1)
+                    if data[-1] == ord('\n'):       #'L032.63H032.63\x1f\r\n'
+                        temp_l = float(data[1:7])
+                        temp_h = float(data[8:14])
+                        cs = 0
+                        for n in range(14):
+                            cs += int(data[n])
+                        cs = cs%256
+                        if not data[14] == cs:
+                            print('CS INVALID')
+                        if not sensor_q.full():
+                            sensor_q.put((temp_l, temp_h))
+                        data = bytes()
+                except Exception as e:
+                    print(e)
+                    data = bytes()
+        except Exception as e:
+            print(e)
+            time.sleep(30)
 
 if __name__ == '__main__':
     fid = open(NMAP_FILE, "wb")
@@ -535,33 +602,31 @@ if __name__ == '__main__':
     except:
         pass
 
-    import glob
-    cwd = os.getcwd()
-    files = glob.glob(os.path.join(cwd, 'record','*.*'))
-    for f in files:
-        tf = os.path.getmtime(f)
-        if int(time.time() - tf)/(60*60) > 24:
-            os.remove(f)
+    if True:
+        sav_proc = mp.Process(target=saving_image_process, args=(storage_q,))
+        sav_proc.daemon = True
+        sav_proc.start()
+        
+        rgb_proc = mp.Process(target=rgb_capture_process, args=(RGB_IP,))
+        rgb_proc.daemon = True
+        #rgb_proc.start()
+        
+        sq = mp.Process(target=sound_process.sound_process, args=(sound_q,))
+        sq.daemon = True
+        sq.start()
 
-    sav_proc = mp.Process(target=saving_image_process, args=(storage_q,))
-    sav_proc.daemon = True
-    sav_proc.start()
+        action_q = mp.Queue(2)
+        guip = mp.Process(target=gui_process, args=(action_q,))
+        guip.daemon = True
+        guip.start()
 
-    rgb_proc = mp.Process(target=rgb_capture_process, args=(RGB_IP,))
-    rgb_proc.daemon = True
-    rgb_proc.start()
-
-    sq = mp.Process(target=sound_process, args=(sound_q,))
-    sq.daemon = True
-    sq.start()
-
-    action_q = mp.Queue(2)
-    guip = mp.Process(target=gui_process, args=(action_q,))
-    guip.daemon = True
-    guip.start()
+    sensor_que = mp.Queue(2)
+    sensor_p = mp.Process(target=sensor_proc, args=(sensor_que,))
+    sensor_p.daemon = True
+    sensor_p.start()
 
     while True:
-        tp = mp.Process(target=thermal_process, args=(sound_q,storage_q,action_q,))
+        tp = mp.Process(target=thermal_process, args=(sound_q,storage_q,action_q,sensor_que,))
         tp.daemon = True
         tp.start()
         tp.join()

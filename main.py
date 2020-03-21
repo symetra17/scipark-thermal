@@ -55,16 +55,16 @@ else:
 class insight_thermal_analyzer(object):
 
     def correct_temp(self, ir_reading):
-        if self.USE_BLACK_BODY:
+        if self.USE_BBODY:
             val = self.ref_pair.interp_temp(ir_reading)
             return val
-
-        if COX_MODEL=='CG':
+        else:
+          if COX_MODEL=='CG':
             strchr = self.dll.ConvertRawToTempCG
             strchr.restype = c_float
             res = self.dll.ConvertRawToTempCG(byref(self.camData.ir_image), self.corrPara, int(ir_reading))
             return res
-        else:
+          else:
             #return 0.321
             # this function requires different number of input arguments in 2018 and 2015 dll
             # GetCorrectedTemp
@@ -111,7 +111,22 @@ class insight_thermal_analyzer(object):
         #self.rgb_buf = np.zeros(RGB_SHAPE, dtype=np.uint8)
         self.src_rgb = np.zeros((SCR_HEIGHT,SCR_WIDTH//2,3),dtype=np.uint8)
         self.ref_pair = rp.reference_pair()
-        self.USE_BLACK_BODY = True
+        self.load_bbody_mode()
+
+    def load_bbody_mode(self):
+        try:
+            fid = open('black_body.cfg','r')
+            s = fid.read()
+            self.USE_BBODY = eval(s)
+            fid.close()
+        except:
+            self.USE_BBODY = False
+            self.save_bbody_mode()
+
+    def save_bbody_mode(self):
+        fid = open('black_body.cfg','w')
+        fid.write(str(self.USE_BBODY))
+        fid.close()
 
     def init_cam_vari(self,ip,port):
         self.npix = THERMAL_WIDTH * THERMAL_HEIGHT
@@ -147,17 +162,23 @@ class insight_thermal_analyzer(object):
                                                 c_int,
                                                 c_ushort,
                                                 c_ushort]
-
-    def load_app_settings(self):
-        self.font = cv2.FONT_HERSHEY_SIMPLEX
+    def load_thd(self):
         self.thd = 19000
-        if os.path.exists('thd.cfg'):
+        if COX_MODEL == 'CG':
+            fname = 'thd_cg.cfg'
+        else:
+            fname = 'thd.cfg'
+        if os.path.exists(fname):
             try:
-                fid=open('thd.cfg','r')
+                fid=open(fname,'r')
                 self.thd = int(fid.read())
                 fid.close()
             except:
                 pass
+
+    def load_app_settings(self):
+        self.font = cv2.FONT_HERSHEY_SIMPLEX
+        self.load_thd()
         if os.path.exists('emissivity.cfg'):
             try:
                 fid=open('emissivity.cfg','r')
@@ -334,7 +355,7 @@ class insight_thermal_analyzer(object):
                     tmax), 
                     (15, 30), self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
 
-        if self.USE_BLACK_BODY:
+        if self.USE_BBODY:
             self.ref_pair.draw(im_8)
 
         rgb = np.frombuffer(self.map[0:RGB_NPIX], dtype=np.uint8)
@@ -388,10 +409,12 @@ class insight_thermal_analyzer(object):
             self.corrPara.emissivity -= 0.01
             self.save_emissivity()
         elif key & 0xff == ord('b'):
-            if self.USE_BLACK_BODY:
-                self.USE_BLACK_BODY = False
+            if self.USE_BBODY:
+                self.USE_BBODY = False
+                self.save_bbody_mode()
             else:
-                self.USE_BLACK_BODY = True
+                self.USE_BBODY = True
+                self.save_bbody_mode()
         elif key & 0xff == ord('q'):
             return -1
 
@@ -574,7 +597,7 @@ def sensor_proc(sensor_q):
                 try:
                     data += blackbody.read(1)
                     if data[-1] == ord('\n'):       #'L032.63H032.63\x1f\r\n'
-                        temp_l = float(data[1:7])
+                        temp_l = float(data[1:7])+0.3
                         temp_h = float(data[8:14])
                         cs = 0
                         for n in range(14):

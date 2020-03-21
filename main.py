@@ -17,11 +17,12 @@ import hikvision
 import multiprocessing as mp
 import psutil
 import collections
-import tkinter as tk
 import random
 import reference_pair as rp
 import sound_process
-import pyftdi.serialext
+import gui_process as gproc
+import sensor_process as senproc
+from numpy import uint8,uint16
 
 # Recording extension header and tail number of frame
 # when an overtemperature event occur, a few seconds of record ahead of the 
@@ -95,7 +96,7 @@ class insight_thermal_analyzer(object):
         cv2.setMouseCallback(self.title, self.mouse_callback)
 
         cv2.namedWindow('RGB', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        buf = np.empty((480, 640, 3), dtype=np.uint8)
+        buf = np.empty((480, 640, 3), dtype=uint8)
         cv2.imshow(self.title, buf)
         cv2.imshow('RGB', buf)
         cv2.resizeWindow(self.title, (800, 600))
@@ -105,13 +106,24 @@ class insight_thermal_analyzer(object):
         self.sound_q = sn_q
         self.storage_q = sto_q
         self.logo = cv2.imread('logo.png')
-        self.scr_buff = np.empty((SCR_HEIGHT, SCR_WIDTH, 3), dtype=np.uint8)   # preallocate this array to speed up
+        self.scr_buff = np.empty((SCR_HEIGHT, SCR_WIDTH, 3), dtype=uint8)   # preallocate this array to speed up
         self.action_q = action_q
         self.sen_q = sen_q
         #self.rgb_buf = np.zeros(RGB_SHAPE, dtype=np.uint8)
-        self.src_rgb = np.zeros((SCR_HEIGHT,SCR_WIDTH//2,3),dtype=np.uint8)
+        self.src_rgb = np.zeros((SCR_HEIGHT,SCR_WIDTH//2,3),dtype=uint8)
         self.ref_pair = rp.reference_pair()
         self.load_bbody_mode()
+        try:
+            self.mask_bw = np.load('mask.npy')
+        except:
+            self.mask_bw = 255 * np.ones((32,40), dtype=uint8)
+            np.save('mask', self.mask_bw)
+        self.mask_color = np.ones((self.mask_bw.shape[0],self.mask_bw.shape[1],3),
+                            dtype=uint8)
+        self.mask_color[:,:,0] = (np.invert(self.mask_bw)/255)*0
+        self.mask_color[:,:,1] = (np.invert(self.mask_bw)/255)*69
+        self.mask_color[:,:,2] = (np.invert(self.mask_bw)/255)*255
+        self.show_mask = False
 
     def load_bbody_mode(self):
         try:
@@ -135,7 +147,7 @@ class insight_thermal_analyzer(object):
         self.mHandle = wintypes.HANDLE()
         self.keepAlive = c_uint()
         self.camData = td.IRF_IR_CAM_DATA_T()
-        self.m16 = np.zeros((THERMAL_HEIGHT,THERMAL_WIDTH), dtype=np.uint16)
+        self.m16 = np.zeros((THERMAL_HEIGHT,THERMAL_WIDTH), dtype=uint16)
         self.acm32 = np.zeros((THERMAL_HEIGHT,THERMAL_WIDTH), dtype=np.uint32)
         self.camData.ir_image = self.m16.ctypes.data_as(POINTER(c_ushort))
         self.camData.image_buffer_size = 4 * THERMAL_WIDTH * THERMAL_HEIGHT
@@ -251,13 +263,16 @@ class insight_thermal_analyzer(object):
                 raise Exception("Get IR Images fail errcode=%d"%(val))
             self.acm32 += self.m16
         self.acm32 = self.acm32//NAVG
-        self.np_img_16 = self.acm32.astype(np.uint16)
+        self.np_img_16 = self.acm32.astype(uint16)
 
     def thresholding(self):
         b_img = self.np_img_16.copy()
         b_img[b_img <= self.thd] = 0
         b_img[b_img > self.thd] = 255
-        b_img = b_img.astype(np.uint8)
+        b_img = b_img.astype(uint8)
+        mask = cv2.resize(self.mask_bw, (b_img.shape[1],b_img.shape[0]), 
+                    interpolation=cv2.INTER_NEAREST)//255
+        b_img = b_img * mask
         kern = cv2.getStructuringElement(cv2.MORPH_RECT, (15,15))
         b_img = cv2.dilate(b_img, kern)
         contours,_ = cv2.findContours(b_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
@@ -265,7 +280,7 @@ class insight_thermal_analyzer(object):
         
     def draw_contours(self, img8, img16, contours):
         for n,_ in enumerate(contours):
-            mask = np.zeros(img8.shape[0:2], dtype=np.uint8)
+            mask = np.zeros(img8.shape[0:2], dtype=uint8)
             cv2.fillPoly(mask, pts=contours[n:n+1], color=(1))
             mmax = (img16*mask).max()
             max_t = self.correct_temp(mmax)
@@ -288,10 +303,10 @@ class insight_thermal_analyzer(object):
         if not self.action_q.empty():
             action = self.action_q.get()
             if action=='thd+':
-                self.thd+=3
+                self.thd+=30
                 self.save_thd()
             elif action=='thd-':
-                self.thd-=3
+                self.thd-=30
                 self.save_thd()
             elif action=='offset+':
                 self.corrPara.emissivity += 0.01
@@ -315,7 +330,7 @@ class insight_thermal_analyzer(object):
         if not NO_HARDWARE_TEST:
             self.get_raw_image()
         else:
-            self.np_img_16 = cv2.imread('ir_test_02.jpg',0).astype(np.uint16)
+            self.np_img_16 = cv2.imread('ir_test_02.jpg',0).astype(uint16)
             self.np_img_16 = self.np_img_16 * 200
             self.np_img_16[160,120] = random.randint(16000, 18000)
             time.sleep(0.03)
@@ -329,7 +344,7 @@ class insight_thermal_analyzer(object):
         fmax = np.percentile(f_img, 99.9)+50
         f_img = np.interp(f_img, [fmin,fmax],[0.0,255.0])
         #print int(1000*(time.time()-t0)),'ms'
-        im_8 = f_img.astype(np.uint8)
+        im_8 = f_img.astype(uint8)
         tmax = self.correct_temp(self.np_img_16.max())
         if COLOR_STYLE=='BW':
             im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_BONE)
@@ -358,11 +373,22 @@ class insight_thermal_analyzer(object):
         if self.USE_BBODY:
             self.ref_pair.draw(im_8)
 
-        rgb = np.frombuffer(self.map[0:RGB_NPIX], dtype=np.uint8)
+        rgb = np.frombuffer(self.map[0:RGB_NPIX], dtype=uint8)
         rgb = rgb.reshape(RGB_SHAPE)
         rgb_full=rgb.copy()
         cv2.resize(rgb, (SCR_WIDTH//2, SCR_HEIGHT), self.src_rgb, 
                                             interpolation=cv2.INTER_NEAREST)
+        if self.show_mask:
+            try:
+                h = im_8.shape[0]
+                w = im_8.shape[1]
+                mask = cv2.resize(self.mask_color, (w,h), interpolation=cv2.INTER_NEAREST)
+                im_8 = im_8//2 + mask//2
+                cv2.putText(im_8, 'MASK EDITING', 
+                    (15, 150), self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
+            except Exception as e:
+                print(e)
+
         self.scr_buff[:,0:SCR_WIDTH//2,:]= im_8
         self.scr_buff[:,SCR_WIDTH//2:,:] = self.src_rgb
         
@@ -415,6 +441,11 @@ class insight_thermal_analyzer(object):
             else:
                 self.USE_BBODY = True
                 self.save_bbody_mode()
+        elif key&0xff==ord(' '):
+            if self.show_mask:
+                self.show_mask = False
+            else:
+                self.show_mask = True
         elif key & 0xff == ord('q'):
             return -1
 
@@ -442,11 +473,7 @@ class insight_thermal_analyzer(object):
         if err != 1:
             print("send stream on message fail errcode=%d"%(err))
         return err
-    
-    def getRAW(self):
-        IRData = np.ndarray(buffer=(c_uint16 * THERMAL_WIDTH * THERMAL_HEIGHT).from_address(addressof(self.irimage)), dtype=np.uint16,shape=(THERMAL_HEIGHT,THERMAL_WIDTH))
-        return IRData
-    
+        
     def setNUC(self):
         self.dll.SendMessageToCamera.restype = c_short
         self.dll.SendMessageToCamera.argtypes = [wintypes.HANDLE, POINTER(c_uint), 
@@ -470,13 +497,31 @@ class insight_thermal_analyzer(object):
         cv2.imwrite(fullpath, Img, [cv2.IMWRITE_JPEG_QUALITY, 90])
 
     def mouse_callback(self, event, x, y, flags, param):
+        h = self.scr_buff.shape[0]
+        w = SCR_WIDTH//2
+        xratio = float(x)/w
+        yratio = float(y)/h
+
         if event == 1:
-            h, w = self.scr_buff[:,0:SCR_WIDTH//2,:].shape[0:2]
-            self.ref_pair.click({'x ratio':float(x)/w, 'y ratio':float(y)/h})
+            self.ref_pair.click({'x ratio':xratio, 'y ratio':yratio})
+            if self.show_mask:
+                xcoor = int(self.mask_bw.shape[1] * xratio)
+                ycoor = int(self.mask_bw.shape[0] * yratio)
+                self.mask_color[ycoor, xcoor] = (0, 69, 255)  # rgb 
+                self.mask_bw[ycoor, xcoor] = 0
+                np.save('mask', self.mask_bw)
+
         elif event == 2:
             self.ref_pair.pick_l = False
             self.ref_pair.pick_h = False
             self.ref_pair.pick_head = False
+
+            if self.show_mask:
+                xcoor = int(self.mask_bw.shape[1] * xratio)
+                ycoor = int(self.mask_bw.shape[0] * yratio)
+                self.mask_color[ycoor, xcoor] = (0,0,0)
+                self.mask_bw[ycoor, xcoor] = 255
+                np.save('mask', self.mask_bw)
 
     def cleanup(self):
         import glob
@@ -523,98 +568,6 @@ def thermal_process(sn_q, sto_q, acn_q, sns_q):
     else:
         cox.connect()
 
-def gui_process(action_q):
-    def thd_up():
-        if not action_q.full():
-            action_q.put('thd+')
-    def thd_down():
-        if not action_q.full():
-            action_q.put('thd-')
-
-    def thd2_up():
-        if not action_q.full():
-            action_q.put('thd2+')
-    def thd2_down():
-        if not action_q.full():
-            action_q.put('thd2-')
-
-    def offset_up():
-        if not action_q.full():
-            action_q.put('offset+')
-    def offset_down():
-        if not action_q.full():
-            action_q.put('offset-')
-
-    def pick_ref_l():
-        if not action_q.full():
-            action_q.put('refl')
-
-    def pick_ref_h():
-        if not action_q.full():
-            action_q.put('refh')
-
-    def pick_ref_head():
-        if not action_q.full():
-            action_q.put('ref head')
-
-    def pick_ref_tape_on_head():
-        if not action_q.full():
-            action_q.put('ref head tape')
-
-    root=tk.Tk()
-    root.wm_attributes("-topmost", 1)
-    root.geometry("+1550+960")
-    root.overrideredirect(True) # removes title bar
-    btns = []
-    btns.append(tk.Button(root,text='THD+',command=thd_up))
-    btns.append(tk.Button(root,text='THD-',command=thd_down))
-    btns.append(tk.Button(root,text='OFFSET+',command=offset_up))
-    btns.append(tk.Button(root,text='OFFSET-',command=offset_down))
-    btns.append(tk.Button(root,text='REF L',command=pick_ref_l))
-    btns.append(tk.Button(root,text='REF H',command=pick_ref_h))
-    btns.append(tk.Button(root,text='REF HEAD',command=pick_ref_head))
-    btns.append(tk.Button(root,text='TAPE ON HEAD', command=pick_ref_tape_on_head))
-
-    for item in btns:
-        item.config(width=10)
-    btns[0].grid(row=0, column=0, padx=6, pady=4)
-    btns[1].grid(row=1, column=0, padx=6, pady=4)
-    btns[2].grid(row=0, column=2, padx=6, pady=4)
-    btns[3].grid(row=1, column=2, padx=6, pady=4)
-    btns[4].grid(row=0, column=3, padx=6, pady=4)
-    btns[5].grid(row=1, column=3, padx=6, pady=4)
-    btns[6].grid(row=0, column=4, padx=6, pady=4)
-    btns[7].grid(row=1, column=4, padx=6, pady=4)
-    root.mainloop()
-
-def sensor_proc(sensor_q):
-    while True:
-        try:
-            print("Establishing USB connection")
-            blackbody = pyftdi.serialext.serial_for_url('ftdi://ftdi:4232h/0', baudrate=57600)
-            data = bytes()
-            while True:
-                try:
-                    data += blackbody.read(1)
-                    if data[-1] == ord('\n'):       #'L032.63H032.63\x1f\r\n'
-                        temp_l = float(data[1:7])+0.3
-                        temp_h = float(data[8:14])
-                        cs = 0
-                        for n in range(14):
-                            cs += int(data[n])
-                        cs = cs%256
-                        if not data[14] == cs:
-                            print('CS INVALID')
-                        if not sensor_q.full():
-                            sensor_q.put((temp_l, temp_h))
-                        data = bytes()
-                except Exception as e:
-                    print(e)
-                    data = bytes()
-        except Exception as e:
-            print(e)
-            time.sleep(30)
-
 if __name__ == '__main__':
     fid = open(NMAP_FILE, "wb")
     buf = bytearray(RGB_NPIX)
@@ -639,12 +592,12 @@ if __name__ == '__main__':
         sq.start()
 
         action_q = mp.Queue(2)
-        guip = mp.Process(target=gui_process, args=(action_q,))
+        guip = mp.Process(target=gproc.gui_process, args=(action_q,))
         guip.daemon = True
         guip.start()
 
     sensor_que = mp.Queue(2)
-    sensor_p = mp.Process(target=sensor_proc, args=(sensor_que,))
+    sensor_p = mp.Process(target=senproc.sensor_proc, args=(sensor_que,))
     sensor_p.daemon = True
     sensor_p.start()
 

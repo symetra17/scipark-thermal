@@ -124,6 +124,10 @@ class insight_thermal_analyzer(object):
         self.mask_color[:,:,1] = (np.invert(self.mask_bw)/255)*69
         self.mask_color[:,:,2] = (np.invert(self.mask_bw)/255)*255
         self.show_mask = False
+        self.cursor = (50,50)
+        self.cursor_textpos = (50,50)
+        self.cursor_reading = 0
+        self.free_space_cnt=0
 
     def load_bbody_mode(self):
         try:
@@ -271,7 +275,7 @@ class insight_thermal_analyzer(object):
         b_img[b_img > self.thd] = 255
         b_img = b_img.astype(uint8)
         mask = cv2.resize(self.mask_bw, (b_img.shape[1],b_img.shape[0]), 
-                    interpolation=cv2.INTER_NEAREST)//255
+                    interpolation=0)//255
         b_img = b_img * mask
         kern = cv2.getStructuringElement(cv2.MORPH_RECT, (15,15))
         b_img = cv2.dilate(b_img, kern)
@@ -335,15 +339,12 @@ class insight_thermal_analyzer(object):
             self.np_img_16[160,120] = random.randint(16000, 18000)
             time.sleep(0.03)
 
-        self.ref_pair.update(self.np_img_16)
-        
+        self.ref_pair.update(self.np_img_16)        
         contours = self.thresholding()
         f_img = self.np_img_16.astype(np.float)
-        #t0 = time.time()
         fmin = np.percentile(f_img, 0.1)
         fmax = np.percentile(f_img, 99.9)+50
         f_img = np.interp(f_img, [fmin,fmax],[0.0,255.0])
-        #print int(1000*(time.time()-t0)),'ms'
         im_8 = f_img.astype(uint8)
         tmax = self.correct_temp(self.np_img_16.max())
         if COLOR_STYLE=='BW':
@@ -361,14 +362,22 @@ class insight_thermal_analyzer(object):
 
         self.draw_contours(im_8, self.np_img_16, contours)
 
-        im_8 = cv2.resize(im_8, (SCR_WIDTH//2,SCR_HEIGHT), 
-                                            interpolation=cv2.INTER_NEAREST)
-        cv2.rectangle(im_8, (10, 10), (420, 40), (100,100,100), cv2.FILLED)
+        im_8 = cv2.resize(im_8, (SCR_WIDTH//2,SCR_HEIGHT), interpolation=0)
+        cv2.rectangle(im_8, (10, 10), (390, 40), (50,50,50), cv2.FILLED)
         cv2.putText(im_8, 'THD %.2f  EMISIV(w/s)%.2f MAX %.2f'%(
                     self.correct_temp(self.thd), 
                     self.corrPara.emissivity,
                     tmax), 
                     (15, 30), self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
+
+        reading = self.correct_temp(self.np_img_16[self.cursor])
+        x1 = self.cursor_textpos[0]-3
+        y1 = self.cursor_textpos[1]-15
+        x2 = self.cursor_textpos[0]+46
+        y2 = self.cursor_textpos[1]+5
+        cv2.rectangle(im_8, (x1,y1), (x2, y2), (50,50,50), cv2.FILLED)
+        cv2.putText(im_8, '%.2f'%reading, self.cursor_textpos, 
+                self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
 
         if self.USE_BBODY:
             self.ref_pair.draw(im_8)
@@ -377,12 +386,12 @@ class insight_thermal_analyzer(object):
         rgb = rgb.reshape(RGB_SHAPE)
         rgb_full=rgb.copy()
         cv2.resize(rgb, (SCR_WIDTH//2, SCR_HEIGHT), self.src_rgb, 
-                                            interpolation=cv2.INTER_NEAREST)
+                                            interpolation=0)
         if self.show_mask:
             try:
                 h = im_8.shape[0]
                 w = im_8.shape[1]
-                mask = cv2.resize(self.mask_color, (w,h), interpolation=cv2.INTER_NEAREST)
+                mask = cv2.resize(self.mask_color, (w,h), interpolation=0)
                 im_8 = im_8//2 + mask//2
                 cv2.putText(im_8, 'MASK EDITING', 
                     (15, 150), self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
@@ -408,17 +417,20 @@ class insight_thermal_analyzer(object):
                 self.storage_q.put([fn, self.scr_buff.copy()])
 
             self.alarm -= 1
-            hdd = psutil.disk_usage('/')
-            space_mb = hdd.free//(1024*1024)
-            if space_mb < 1000:
-                cv2.putText(self.scr_buff, 'Storage is full',
-                    (15, 100), self.font, 1, (0,255,255), 2, cv2.LINE_AA)
-                self.cleanup()
+            self.free_space_cnt += 1
+            if self.free_space_cnt > 10:
+                self.free_space_cnt = 0
+                hdd = psutil.disk_usage('/')
+                space_mb = hdd.free//(1024*1024)
+                if space_mb < 1000:
+                    cv2.putText(self.scr_buff, 'Storage is full',
+                        (15, 100), self.font, 1, (0,255,255), 2, cv2.LINE_AA)
+                    self.cleanup()
 
-        logo_px = 1650
-        logo_py = 740
-        self.scr_buff[logo_py:logo_py+self.logo.shape[0], logo_px:logo_px+self.logo.shape[1], :] //= 2
-        self.scr_buff[logo_py:logo_py+self.logo.shape[0], logo_px:logo_px+self.logo.shape[1], :] += self.logo//2
+        px = 1650
+        py = 740
+        self.scr_buff[py:py+self.logo.shape[0], px:px+self.logo.shape[1], :] //= 2
+        self.scr_buff[py:py+self.logo.shape[0], px:px+self.logo.shape[1], :] += self.logo//2
         cv2.imshow(self.title, self.scr_buff[:,0:SCR_WIDTH//2,:])
         cv2.imshow('RGB', rgb_full)
         key = cv2.waitKey(10)
@@ -501,6 +513,15 @@ class insight_thermal_analyzer(object):
         w = SCR_WIDTH//2
         xratio = float(x)/w
         yratio = float(y)/h
+
+        if event == 0:
+          if not self.show_mask:
+            xcoo = int(xratio*self.np_img_16.shape[1])
+            ycoo = int(yratio*self.np_img_16.shape[0])
+            self.cursor = (ycoo,xcoo)
+            xcoo = int(xratio*SCR_WIDTH//2)
+            ycoo = int(yratio*SCR_HEIGHT)
+            self.cursor_textpos = (xcoo+10, ycoo-5)
 
         if event == 1:
             self.ref_pair.click({'x ratio':xratio, 'y ratio':yratio})

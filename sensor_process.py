@@ -1,10 +1,12 @@
 import pyftdi.serialext
+import time
 
 def sensor_proc(sensor_q):
     while True:
         try:
             print("Establishing USB connection")
-            blackbody = pyftdi.serialext.serial_for_url('ftdi://ftdi:4232h/0', baudrate=57600)
+            blackbody = pyftdi.serialext.serial_for_url('ftdi://ftdi:4232h/0', 
+                        baudrate=57600)
             data = bytes()
             while True:
                 try:
@@ -24,7 +26,9 @@ def sensor_proc(sensor_q):
                         data = bytes()
                 except Exception as e:
                     print(e)
-                    data = bytes()
+                    print('Restart USB connection')
+                    break
         except Exception as e:
             print(e)
-            time.sleep(30)
+            time.sleep(10)
+

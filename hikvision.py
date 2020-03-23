@@ -12,10 +12,6 @@ import mmap
 
 
 class HikVision(object):
-    '''
-    - Connect visible IP camera and get picture data(YUV).
-    - Convert YUV to RGB through YUV2RGB.dll
-    '''
 
     def __init__(self):
         self.nmap_fid = open("sharedmem.dat", "r+")
@@ -42,7 +38,7 @@ class HikVision(object):
             print(e)
             os._exit(0)
 
-        self.lUserID = 0L
+        self.lUserID = 0
         self.lPort = pointer(c_long())
         
         # Set Argument Types
@@ -122,9 +118,9 @@ class HikVision(object):
         
     def login(self):
         struDeviceInfo = td.NET_DVR_DEVICEINFO_V30()
-        self.lUserID = 0L
-        self.netsdk.NET_DVR_Login_V30.argtypes = [c_char_p, wintypes.WORD, c_char_p, c_char_p,
-                                                  POINTER(td.NET_DVR_DEVICEINFO_V30)]
+        self.lUserID = 0
+        #self.netsdk.NET_DVR_Login_V30.argtypes = [c_char_p, wintypes.WORD, c_char_p, c_char_p,
+        #                                          POINTER(td.NET_DVR_DEVICEINFO_V30)]
         self.lUserID = self.netsdk.NET_DVR_Login_V30(self.ipaddr, self.port, self.username, self.password, 
                                                     byref(struDeviceInfo))
         if self.lUserID < 0:
@@ -248,7 +244,7 @@ class HikVision(object):
                     # Put encoded video streaming package into decoder
                     b_res = self.playCtrl.PlayM4_InputData(self.lPort[0], pBuffer, dwBufSize)
                     if not b_res:
-                        print ('Error in PlayM4_InputData')
+                        print('Error in PlayM4_InputData')
                         quit()
             return 1
         except Exception as e:

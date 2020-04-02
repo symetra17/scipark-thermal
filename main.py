@@ -23,6 +23,8 @@ import sound_process
 import gui_process as gproc
 import sensor_process as senproc
 from numpy import uint8,uint16
+import glob
+import cleanup
 
 # Recording extension header and tail number of frame
 # when an overtemperature event occur, a few seconds of record ahead of the 
@@ -80,7 +82,6 @@ class insight_thermal_analyzer(object):
         dll_path = opjoin('dll', 'CG_ThermalCamDll_2018.dll')
         try:
             self.dll = windll.LoadLibrary(dll_path)
-            #self.dll = cdll.LoadLibrary(dll_path)
         except:
             print('Could not load Thermal camera DLL.')
             quit()
@@ -425,7 +426,6 @@ class insight_thermal_analyzer(object):
                 if space_mb < 1000:
                     cv2.putText(self.scr_buff, 'Storage is full',
                         (15, 100), self.font, 1, (0,255,255), 2, cv2.LINE_AA)
-                    self.cleanup()
 
         px = 1650
         py = 740
@@ -544,18 +544,6 @@ class insight_thermal_analyzer(object):
                 self.mask_bw[ycoor, xcoor] = 255
                 np.save('mask', self.mask_bw)
 
-    def cleanup(self):
-        import glob
-        print('Removing old image records')
-        cwd = os.getcwd()
-        files = glob.glob(os.path.join(cwd, 'record','*.*'))
-        for f in files:
-            tf = os.path.getmtime(f)
-            if int(time.time() - tf)//(60*60) > 6:
-                print('Removing ', f)
-                os.remove(f)
-        print('Completed')
-
 def rgb_capture_process(ipaddr):
     ipcam = hikvision.HikVision()
     ipport = "8000"
@@ -600,6 +588,10 @@ if __name__ == '__main__':
         pass
 
     if True:
+        clean_proc = mp.Process(target=cleanup.cleanup, args=(0,))
+        clean_proc.daemon = True
+        clean_proc.start()
+
         sav_proc = mp.Process(target=saving_image_process, args=(storage_q,))
         sav_proc.daemon = True
         sav_proc.start()

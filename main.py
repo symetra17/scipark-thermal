@@ -103,7 +103,7 @@ class insight_thermal_analyzer(object):
         cv2.resizeWindow(self.title, (800, 600))
         cv2.resizeWindow('RGB', (800,600))
         self.hour_dir = ''
-        self.alarm = 0
+        self.record_counter = 0
         self.sound_q = sn_q
         self.storage_q = sto_q
         self.logo = cv2.imread('logo.png')
@@ -282,7 +282,16 @@ class insight_thermal_analyzer(object):
         kern = cv2.getStructuringElement(cv2.MORPH_RECT, (15,15))
         b_img = cv2.dilate(b_img, kern)
         contours,_ = cv2.findContours(b_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        return contours
+
+        img16 = self.np_img_16.copy()
+        max_t_list = []
+        for n,_ in enumerate(contours):
+            mask = np.zeros(img16.shape[0:2], dtype=uint8)
+            cv2.fillPoly(mask, pts=contours[n:n+1], color=(1))
+            mmax = (img16*mask).max()
+            max_t = self.correct_temp(mmax)
+            max_t_list.append(max_t)
+        return contours, max_t_list
         
     def draw_contours(self, img8, img16, contours):
         for n,_ in enumerate(contours):
@@ -302,8 +311,12 @@ class insight_thermal_analyzer(object):
             lb_ypos = np.array(y).max()
             cv2.rectangle(img8, (lb_xpos, lb_ypos-12), (lb_xpos+35, lb_ypos+1), 
                                                 (128,128,128), cv2.FILLED)
+            if max_t < 42.1:
+                color = (255,255,255)
+            else:
+                color = (255,0,255)
             cv2.putText(img8, '%.1f'%max_t, (lb_xpos,lb_ypos), self.font,
-                        0.5, (255,255,255), 1, cv2.LINE_AA)
+                        0.5, color, 1, cv2.LINE_AA)
 
     def processing(self):
         if not self.action_q.empty():
@@ -342,7 +355,7 @@ class insight_thermal_analyzer(object):
             time.sleep(0.03)
 
         self.ref_pair.update(self.np_img_16)        
-        contours = self.thresholding()
+        contours, max_t_list = self.thresholding()
         f_img = self.np_img_16.astype(np.float)
         fmin = np.percentile(f_img, 0.1)
         fmax = np.percentile(f_img, 99.9)+50
@@ -356,11 +369,15 @@ class insight_thermal_analyzer(object):
             im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_JET)
             cv2.drawContours(im_8, contours, -1, (255,255,255), thickness=2)
 
-        if len(contours) > 0:
-            self.alarm = RECORD_EXTEND_T
-            if tmax < 42.1:
-                if not self.sound_q.full():
-                    self.sound_q.put(0)
+        alart_flag = False
+        for item in max_t_list:
+            if item < 42.1:
+                alart_flag = True
+
+        if alart_flag:
+            self.record_counter = RECORD_EXTEND_T
+            if not self.sound_q.full():
+                self.sound_q.put(0)
 
         self.draw_contours(im_8, self.np_img_16, contours)
 
@@ -406,11 +423,11 @@ class insight_thermal_analyzer(object):
         ts_str = datetime.now().strftime("%y%m%d-%H%M%S-%f")[:-3]
         fn = opjoin('record', ts_str + '.jpg')
 
-        if self.alarm == 0:
+        if self.record_counter == 0:
             fn = opjoin('record', ts_str + '.jpg')
             buf_q.append([fn, self.scr_buff.copy()])
         else:
-            if self.alarm == RECORD_EXTEND_T:
+            if self.record_counter == RECORD_EXTEND_T:
                 for k in range(len(buf_q)):
                     if not self.storage_q.full():
                         self.storage_q.put(buf_q.pop())
@@ -418,7 +435,7 @@ class insight_thermal_analyzer(object):
             if not self.storage_q.full():
                 self.storage_q.put([fn, self.scr_buff.copy()])
 
-            self.alarm -= 1
+            self.record_counter -= 1
             self.free_space_cnt += 1
             if self.free_space_cnt > 10:
                 self.free_space_cnt = 0
@@ -436,10 +453,16 @@ class insight_thermal_analyzer(object):
         cv2.imshow('RGB', rgb_full)
         key = cv2.waitKey(10)
         if key & 0xff == ord('+'):
-            self.thd += 3
+            if COX_MODEL == 'CG':
+                self.thd += 6
+            else:
+                self.thd += 10
             self.save_thd()
         elif key & 0xff == ord('-'):
-            self.thd -= 3
+            if COX_MODEL == 'CG':
+                self.thd -= 6
+            else:
+                self.thd -= 10
             self.save_thd()
         elif key & 0xff == ord('w'):
             self.corrPara.emissivity += 0.01

@@ -183,6 +183,7 @@ class insight_thermal_analyzer(object):
         self.thd = 19000
         if COX_MODEL == 'CG':
             fname = 'thd_cg.cfg'
+            self.thd = 6000
         else:
             fname = 'thd.cfg'
         if os.path.exists(fname):
@@ -469,7 +470,11 @@ class insight_thermal_analyzer(object):
         fid.close()
 
     def save_thd(self):
-        fid=open('thd.cfg','w')
+        if COX_MODEL == 'CG':
+            fname = 'thd_cg.cfg'
+        else:
+            fname = 'thd.cfg'
+        fid=open(fname,'w')
         fid.write('%d'%self.thd)
         fid.close()
 
@@ -598,7 +603,7 @@ if __name__ == '__main__':
         
         rgb_proc = mp.Process(target=rgb_capture_process, args=(RGB_IP,))
         rgb_proc.daemon = True
-        #rgb_proc.start()
+        rgb_proc.start()
         
         sq = mp.Process(target=sound_process.sound_process, args=(sound_q,))
         sq.daemon = True

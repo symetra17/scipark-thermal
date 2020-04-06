@@ -39,7 +39,7 @@ def generate_video():
   cwd = os.getcwd()
   files = glob(os.path.join(cwd, 'record', '*.jpg'))
   files.sort(key=os.path.getmtime)
-  MAX_LEN = 2000
+  MAX_LEN = 4000
   for loop in range(5):
     if len(files) > MAX_LEN:
         batch = files[0:MAX_LEN]
@@ -52,17 +52,24 @@ def generate_video():
     hour = int(fn[7:9])
     min = int(fn[9:11])
     sec = int(fn[11:13])
+    print(len(batch))
+    
     if len(batch) > 0:
         fid = open('jpglist.txt','w')
+        dn=0
         for f in batch:
-            fid.write('file '+ "'" + f + "'" + '\n')
-            fid.write("duration 0.1\n")
+            if dn%2 == 0:
+              fid.write('file '+ "'" + f + "'" + '\n')
+              fid.write("duration 0.1\n")
+            dn+=1
         fid.close()
-        cm = 'ffmpeg -f concat -safe 0 -i jpglist.txt -y -c:v h264_nvenc -preset slow -qp 18 -pix_fmt yuv420p '
+        cm = 'ffmpeg -f concat -safe 0 -i jpglist.txt -y -c:v h264_nvenc -preset slow -vf fps=12 -qp 18 -pix_fmt yuv420p '
         cm += 'record\\record_20%02d%02d-%02d%02d%02d.mp4'%(month,day,hour,min,sec)
         x = os.system(cm)
         for f in batch:
             os.remove(f)
 
 if __name__=='__main__':
+    t0=time()
     generate_video()
+    print('encode time',int(time()-t0))

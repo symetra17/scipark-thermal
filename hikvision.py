@@ -10,6 +10,7 @@ import time
 from datetime import datetime
 import mmap
 
+NO_HARDWARE = True
 
 class HikVision(object):
 
@@ -117,22 +118,36 @@ class HikVision(object):
         self.ClientInfo.sMulticastIP = None
         
     def login(self):
-        struDeviceInfo = td.NET_DVR_DEVICEINFO_V30()
-        self.lUserID = 0
-        #self.netsdk.NET_DVR_Login_V30.argtypes = [c_char_p, wintypes.WORD, c_char_p, c_char_p,
-        #                                          POINTER(td.NET_DVR_DEVICEINFO_V30)]
-        self.lUserID = self.netsdk.NET_DVR_Login_V30(self.ipaddr, self.port, self.username, self.password, 
-                                                    byref(struDeviceInfo))
-        if self.lUserID < 0:
-            print("Camera Login Failed", self.ipaddr, self.port, self.username, self.password)
-            self.netsdk.NET_DVR_Cleanup()
-            return {'status': 'ERR'}
-        elif self.lUserID >= 0:
-            self.ts_diff = time.time()
-            print("Camera Login Successful  Camera IP: " + self.ipaddr + ":" + str(self.port))
-            self.start()
-        return {'status': 'OK'}
-    
+        if NO_HARDWARE == False:
+            struDeviceInfo = td.NET_DVR_DEVICEINFO_V30()
+            self.lUserID = 0
+            #self.netsdk.NET_DVR_Login_V30.argtypes = [c_char_p, wintypes.WORD, c_char_p, c_char_p,
+            #                                          POINTER(td.NET_DVR_DEVICEINFO_V30)]
+            self.lUserID = self.netsdk.NET_DVR_Login_V30(self.ipaddr, self.port, self.username, self.password, 
+                                                        byref(struDeviceInfo))
+            if self.lUserID < 0:
+                print("Camera Login Failed", self.ipaddr, self.port, self.username, self.password)
+                self.netsdk.NET_DVR_Cleanup()
+                return {'status': 'ERR'}
+            elif self.lUserID >= 0:
+                self.ts_diff = time.time()
+                print("Camera Login Successful  Camera IP: " + self.ipaddr + ":" + str(self.port))
+                self.start()
+            return {'status': 'OK'}
+        else:
+            nmap_fid = open("sharedmem.dat", "r+")
+            fmap = mmap.mmap(nmap_fid.fileno(), 0)
+            img = cv2.imread('cctv_sample.jpg')
+            while True:
+                img[:,:,0] = np.roll(img[:,:,0], 6)
+                img[:,:,1] = np.roll(img[:,:,1], 6)
+                img[:,:,2] = np.roll(img[:,:,2], 6)
+                size = img.shape[0] * img.shape[1] * img.shape[2]
+                fmap[0:(size)] = img.tobytes()
+                time.sleep(0.09)
+                #cv2.imshow('',img)
+                #cv2.waitKey(20)
+
     def start(self):
         self.lRealPlayHandle = 0
         
@@ -266,4 +281,3 @@ if __name__ == '__main__':
     ipcam.login()
     while True:
         time.sleep(10)
-

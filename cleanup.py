@@ -39,7 +39,7 @@ def generate_video():
   cwd = os.getcwd()
   files = glob(os.path.join(cwd, 'record', '*.jpg'))
   files.sort(key=os.path.getmtime)
-  MAX_LEN = 4000
+  MAX_LEN = 2000
   for loop in range(5):
     if len(files) > MAX_LEN:
         batch = files[0:MAX_LEN]

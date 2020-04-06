@@ -451,7 +451,7 @@ class insight_thermal_analyzer(object):
         self.scr_buff[py:py+self.logo.shape[0], px:px+self.logo.shape[1], :] += self.logo//2
         cv2.imshow(self.title, self.scr_buff[:,0:SCR_WIDTH//2,:])
         cv2.imshow('RGB', rgb_full)
-        key = cv2.waitKey(10)
+        key = cv2.waitKey(30)
         if key & 0xff == ord('+'):
             if COX_MODEL == 'CG':
                 self.thd += 6

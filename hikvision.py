@@ -10,11 +10,12 @@ import time
 from datetime import datetime
 import mmap
 
-NO_HARDWARE = True
+
 
 class HikVision(object):
 
     def __init__(self):
+        self.NO_HARDWARE = os.path.exists('nohardware.cfg')
         self.nmap_fid = open("sharedmem.dat", "r+")
         self.map = mmap.mmap(self.nmap_fid.fileno(), 0)
 
@@ -118,7 +119,7 @@ class HikVision(object):
         self.ClientInfo.sMulticastIP = None
         
     def login(self):
-        if NO_HARDWARE == False:
+        if self.NO_HARDWARE == False:
             struDeviceInfo = td.NET_DVR_DEVICEINFO_V30()
             self.lUserID = 0
             #self.netsdk.NET_DVR_Login_V30.argtypes = [c_char_p, wintypes.WORD, c_char_p, c_char_p,

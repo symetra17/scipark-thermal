@@ -124,8 +124,10 @@ class HikVision(object):
             self.lUserID = 0
             #self.netsdk.NET_DVR_Login_V30.argtypes = [c_char_p, wintypes.WORD, c_char_p, c_char_p,
             #                                          POINTER(td.NET_DVR_DEVICEINFO_V30)]
-            self.lUserID = self.netsdk.NET_DVR_Login_V30(self.ipaddr, self.port, self.username, self.password, 
-                                                        byref(struDeviceInfo))
+            b_addr = self.ipaddr.encode('utf-8')
+            self.lUserID = self.netsdk.NET_DVR_Login_V30(b_addr, self.port, 
+                                self.username.encode('utf-8'), self.password.encode('utf-8'), 
+                                byref(struDeviceInfo))
             if self.lUserID < 0:
                 print("Camera Login Failed", self.ipaddr, self.port, self.username, self.password)
                 self.netsdk.NET_DVR_Cleanup()

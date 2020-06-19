@@ -617,47 +617,45 @@ class insight_thermal_analyzer(object):
             self.scr_buff[py:py+self.setting_logo.shape[0], px:px+self.setting_logo.shape[1], :] //= 2
             self.scr_buff[py:py+self.setting_logo.shape[0], px:px+self.setting_logo.shape[1], :] += self.setting_logo//2
 
-        #cv2.imshow(self.title, self.scr_buff[:,0:SCR_WIDTH//2,:])
+        # decouple main loop and display loop so to avoid main loop freeze duriong mouse drag
         if not self.disp_q.full():
             self.disp_q.put(self.scr_buff[:,0:SCR_WIDTH//2,:])
-
         if not self.disp_q_rgb.full():
             self.disp_q_rgb.put(rgb_full)
 
-        #cv2.imshow('RGB', rgb_full)
-        key = cv2.waitKey(30)
-        if key & 0xff == ord('+'):
-            if COX_MODEL == 'CG':
-                self.thd += 6
-            else:
-                self.thd += 10
-            self.save_thd()
-        elif key & 0xff == ord('-'):
-            if COX_MODEL == 'CG':
-                self.thd -= 6
-            else:
-                self.thd -= 10
-            self.save_thd()
-        elif key & 0xff == ord('w'):
-            self.corrPara.emissivity += 0.01
-            self.save_emissivity()
-        elif key & 0xff == ord('s'):
-            self.corrPara.emissivity -= 0.01
-            self.save_emissivity()
-        elif key & 0xff == ord('b'):
-            if self.USE_BBODY:
-                self.USE_BBODY = False
-                self.save_bbody_mode()
-            else:
-                self.USE_BBODY = True
-                self.save_bbody_mode()
-        elif key&0xff==ord(' '):
-            if self.show_mask:
-                self.show_mask = False
-            else:
-                self.show_mask = True
-        elif key & 0xff == ord('q'):
-            return -1
+        #key = cv2.waitKey(30)
+        #if key & 0xff == ord('+'):
+        #    if COX_MODEL == 'CG':
+        #        self.thd += 6
+        #    else:
+        #        self.thd += 10
+        #    self.save_thd()
+        #elif key & 0xff == ord('-'):
+        #    if COX_MODEL == 'CG':
+        #        self.thd -= 6
+        #    else:
+        #        self.thd -= 10
+        #    self.save_thd()
+        #elif key & 0xff == ord('w'):
+        #    self.corrPara.emissivity += 0.01
+        #    self.save_emissivity()
+        #elif key & 0xff == ord('s'):
+        #    self.corrPara.emissivity -= 0.01
+        #    self.save_emissivity()
+        #elif key & 0xff == ord('b'):
+        #    if self.USE_BBODY:
+        #        self.USE_BBODY = False
+        #        self.save_bbody_mode()
+        #    else:
+        #        self.USE_BBODY = True
+        #        self.save_bbody_mode()
+        #elif key&0xff==ord(' '):
+        #    if self.show_mask:
+        #        self.show_mask = False
+        #    else:
+        #        self.show_mask = True
+        #elif key & 0xff == ord('q'):
+        #    return -1
         return 0
 
     def save_emissivity(self):

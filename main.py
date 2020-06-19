@@ -82,7 +82,7 @@ class insight_thermal_analyzer(object):
             
             return t_c
 
-    def __init__(self, ip, port, sn_q, sto_q, action_q, sen_q,s):
+    def __init__(self, ip, port, sn_q, sto_q, action_q, sen_q, sock):
 
         print('Loading Thermal camera library')
         dll_path = opjoin('dll', 'CG_ThermalCamDll_2018.dll')
@@ -131,7 +131,7 @@ class insight_thermal_analyzer(object):
         self.cursor_textpos = (50,50)
         self.cursor_reading = 0
         self.free_space_cnt=0
-        self.s=s
+        self.sock = sock
         self.disp_q = queue.Queue(3)
         self.imshow_thread = threading.Thread(target=self.imshow_loop, args=(self.disp_q, ))
         self.imshow_thread.start()
@@ -332,10 +332,10 @@ class insight_thermal_analyzer(object):
         self.acm32 = self.acm32//NAVG
         self.np_img_16 = self.acm32.astype(uint16)
 
-    def client_to_yolo(self,img):
-        pack_img=pickle.dumps(img)
-        self.s.sendall(pack_img)
-        data = self.s.recv(4096)
+    def client_to_yolo(self, img):
+        pack_img = pickle.dumps(img)
+        self.sock.sendall(pack_img)
+        data = self.sock.recv(4096)
         boxes = pickle.loads(data)
         return boxes
 
@@ -781,8 +781,8 @@ def saving_image_process(st_q):
             cv2.imwrite(a,b)
         time.sleep(0.05)
 
-def thermal_process(sn_q, sto_q, acn_q, sns_q,s):
-    cox = insight_thermal_analyzer(THERMAL_IP, "15001", sn_q, sto_q, acn_q, sns_q,s)
+def thermal_process(sn_q, sto_q, acn_q, sns_q, sock):
+    cox = insight_thermal_analyzer(THERMAL_IP, "15001", sn_q, sto_q, acn_q, sns_q, sock)
     if NO_HARDWARE_TEST:
         while True:
             try:
@@ -804,11 +804,11 @@ if __name__ == '__main__':
     except:
         pass
 
-    s=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     for n in range(5):
         try:
             print("connecting")
-            s.connect((yolo_host,yolo_port))
+            sock.connect((yolo_host,yolo_port))
             break
         except:
             time.sleep(2)
@@ -843,7 +843,7 @@ if __name__ == '__main__':
     sensor_p.start()
 
     while True:
-        tp = mp.Process(target=thermal_process, args=(sound_q,storage_q,action_q,sensor_que,s,))
+        tp = mp.Process(target=thermal_process, args=(sound_q,storage_q,action_q,sensor_que,sock,))
         #tp.daemon = True
         tp.start()
         tp.join()

@@ -18,11 +18,11 @@ class reference_pair(object):
         self.font = cv2.FONT_HERSHEY_SIMPLEX
         self.x_l = 0.1         # x position, unit in ratio
         self.y_l = 0.1         # y position, unit in ratio
-        self.temp_l = 35.5     # in degree
+        self.temp_l = 36     # in degree
         self.raw_l = 0         # in sensor output scale, 0-65535
         self.x_h = 0.2
         self.y_h = 0.1
-        self.temp_h = 41.0     # in degree
+        self.temp_h = 40.0     # in degree
         self.raw_h = 0         # in sensor output scale, 0-65535
         self.pick_l = False
         self.pick_h = False
@@ -86,18 +86,18 @@ class reference_pair(object):
 
     def save_l(self):
         fid=open('x_l.cfg','w')
-        fid.write('%.2f'%self.x_l)
+        fid.write('%.3f'%self.x_l)
         fid.close()
         fid=open('y_l.cfg','w')
-        fid.write('%.2f'%self.y_l)
+        fid.write('%.3f'%self.y_l)
         fid.close()
 
     def save_h(self):
         fid=open('x_h.cfg','w')
-        fid.write('%.2f'%self.x_h)
+        fid.write('%.3f'%self.x_h)
         fid.close()
         fid=open('y_h.cfg','w')
-        fid.write('%.2f'%self.y_h)
+        fid.write('%.3f'%self.y_h)
         fid.close()
 
     def update(self, img):

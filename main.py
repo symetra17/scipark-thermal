@@ -97,24 +97,22 @@ class insight_thermal_analyzer(object):
         self.init_cam_vari(ip,port)
         self.load_app_settings()
         self.fid = open(NMAP_FILE, "r+")
-        self.map = mmap.mmap(self.fid.fileno(), 0)
-        
+        self.map = mmap.mmap(self.fid.fileno(), 0)        
         #cv2.namedWindow(self.title, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
         #cv2.setMouseCallback(self.title, self.mouse_callback)
-
-        cv2.namedWindow('RGB', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+        #cv2.namedWindow('RGB', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
         self.width=1080
         self.height=810
         self.crop_width=1320
         self.crop_height=990
         self.load_offset_of_camera()
         #cv2.resizeWindow(self.title, (self.width, self.height))
-        cv2.resizeWindow('RGB', (self.width,self.height))
+        #cv2.resizeWindow('RGB', (self.width,self.height))
         #cv2.moveWindow(self.title,0,0)
-        cv2.moveWindow('RGB',self.width,0)
+        #cv2.moveWindow('RGB',self.width,0)
         buf = np.empty((480, 640, 3), dtype=uint8)
         #cv2.imshow(self.title, buf)
-        cv2.imshow('RGB', buf)
+        #cv2.imshow('RGB', buf)
         self.hour_dir = ''
         self.record_counter = 0
         self.sound_q = sn_q

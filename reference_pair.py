@@ -137,6 +137,16 @@ class reference_pair(object):
 
         #emissitivity_different
 
+    def temp2raw(self, inp):
+        if self.raw_l == self.raw_h:
+            raw_h = self.raw_h + 1
+        else:
+            raw_h = self.raw_h
+        raw_l = self.raw_l
+        f = interpolate.interp1d([self.temp_l, self.temp_h], [raw_l, raw_h],
+                        fill_value='extrapolate')
+        return f(inp)
+
     def draw(self, im_8):
         s = 5     # rectangle size = s*2
         w = im_8.shape[1]

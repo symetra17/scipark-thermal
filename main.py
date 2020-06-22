@@ -93,7 +93,7 @@ class insight_thermal_analyzer(object):
             quit()
         print('Completed')
         self.dll.GetCorrectedTemp.restype = c_float
-        #self.load_temp_map() #there is problme with the map
+        self.load_temp_map() #there is problme with the map
         self.init_cam_vari(ip,port)
         self.load_app_settings()
         self.fid = open(NMAP_FILE, "r+")
@@ -256,6 +256,19 @@ class insight_thermal_analyzer(object):
             except:
                 pass
 
+        fname = 'thd_cels.cfg'
+        for _ in range(2):
+            if os.path.exists(fname):
+                fid=open(fname,'r')
+                self.thd_cels = float(fid.read())
+                fid.close()
+                break
+            else:
+                fid=open(fname,'w')
+                fid.write('36.0')
+                fid.close()
+
+
     def load_app_settings(self):
         self.font = cv2.FONT_HERSHEY_SIMPLEX
         self.load_thd()
@@ -404,26 +417,30 @@ class insight_thermal_analyzer(object):
     def processing(self):
         if not self.action_q.empty():
             action = self.action_q.get()
-            if action=='thd+':
-                self.thd+=30
+            if action[0] == 'thd':
+                self.thd_cels = action[1]
                 self.save_thd()
-            elif action=='thd-':
-                self.thd-=30
-                self.save_thd()
-            elif action=='offset+':
-                self.corrPara.emissivity += 0.01
-                self.save_emissivity()
-            elif action=='offset-':
-                self.corrPara.emissivity -= 0.01
-                self.save_emissivity()
-            elif action=='refl':
-                self.ref_pair.pick_l = True
-            elif action=='refh':
-                self.ref_pair.pick_h = True
-            elif action=='ref head':
-                self.ref_pair.pick_head()
-            elif action=='ref head tape':
-                self.ref_pair.pick_head_tape()
+
+            #if action=='thd+':
+            #    self.thd+=30
+            #    self.save_thd()
+            #elif action=='thd-':
+            #    self.thd-=30
+            #    self.save_thd()
+            #elif action=='offset+':
+            #    self.corrPara.emissivity += 0.01
+            #    self.save_emissivity()
+            #elif action=='offset-':
+            #    self.corrPara.emissivity -= 0.01
+            #    self.save_emissivity()
+            #elif action=='refl':
+            #    self.ref_pair.pick_l = True
+            #elif action=='refh':
+            #    self.ref_pair.pick_h = True
+            #elif action=='ref head':
+            #    self.ref_pair.pick_head()
+            #elif action=='ref head tape':
+            #    self.ref_pair.pick_head_tape()
 
         if not self.sen_q.empty():
             temp_c = self.sen_q.get()
@@ -457,72 +474,72 @@ class insight_thermal_analyzer(object):
         contours_list=[]
         max_t_list=[]
         IR_boxes=[]
-        if numofhead>0:
-            for i in range(numofhead):
-                if i>29:
-                    break
-                box_one_head=boxes_from_yolo[i][2]
-                center_x=box_one_head[0]
-                center_y=box_one_head[1]
-                width = box_one_head[2]
-                height = box_one_head[3]
-                left = int(center_x-width/2)
-                top = int(center_y-height/2)
-                right=int(left+width)
-                bottom=int(top+height)
-                #yolo4 return center_x and cneter_y so need to convert to left top
-                box_after_adjust=[0,0,0,0]
-                box_after_adjust[0]=left
-                box_after_adjust[1]=top
-                box_after_adjust[2]=width
-                box_after_adjust[3]=height
-                #cv2.rectangle(rgb_full, (left, top), (right, bottom), (0, 255, 255), 2)
-                contours, max_t , box_for_IR = self.thresholding(box_after_adjust)
-                contours_list.extend(contours)
-                max_t_list.extend(max_t)
-                IR_boxes.append(box_for_IR)
 
-            self.ref_pair.update(self.np_img_16)        
-            f_img = self.np_img_16.astype(np.float)
-            fmin = np.percentile(f_img, 0.1)
-            fmax = np.percentile(f_img, 99.9)+50
-            f_img = np.interp(f_img, [fmin,fmax],[0.0,255.0])
-            im_8 = f_img.astype(uint8)
-            tmax = self.correct_temp(self.np_img_16.max())
-            
-            if COLOR_STYLE=='BW':
-                im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_BONE)
-                cv2.drawContours(im_8, contours_list, -1, (0,0,255), thickness=2)
-            else:
-                im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_JET)
-                cv2.drawContours(im_8, contours_list, -1, (255,255,255), thickness=2)
-
-            for i in range(numofhead):
-                IR_box=IR_boxes[i]
-                IR_left=IR_box[0]
-                IR_top=IR_box[1]
-                IR_width=IR_box[2]
-                IR_height=IR_box[3]
-                IR_right=int(IR_left+IR_width)
-                IR_bottom=int(IR_top+IR_height)
-                box_one_head=boxes_from_yolo[i][2]
-                center_x=box_one_head[0]
-                center_y=box_one_head[1]
-                width = box_one_head[2]
-                height = box_one_head[3]
-                left = int(center_x-width/2)
-                top = int(center_y-height/2)
-                right=int(left+width)
-                bottom=int(top+height)
-                try:
-                    if max_t_list[i]>self.correct_temp(self.thd):
-                        cv2.rectangle(im_8,(IR_left,IR_top),(IR_right,IR_bottom),(0,0,255),2)
-                        cv2.rectangle(rgb_full, (left, top), (right, bottom), (0, 0, 255), 2)
-                except:
-                    cv2.rectangle(im_8,(IR_left,IR_top),(IR_right,IR_bottom),(0,255,0),2)
-                    face_to_blur=rgb_full[top:top+int(height),left:left+int(width),0:3]
-                    blur=cv2.GaussianBlur(face_to_blur,(51,51),0)
-                    rgb_full[top:top+int(height),left:left+int(width),0:3]=blur   
+        for i in range(numofhead):
+            if i>29:
+                break
+            box_one_head=boxes_from_yolo[i][2]
+            center_x=box_one_head[0]
+            center_y=box_one_head[1]
+            width = box_one_head[2]
+            height = box_one_head[3]
+            left = int(center_x-width/2)
+            top = int(center_y-height/2)
+            right=int(left+width)
+            bottom=int(top+height)
+            #yolo4 return center_x and cneter_y so need to convert to left top
+            box_after_adjust=[0,0,0,0]
+            box_after_adjust[0]=left
+            box_after_adjust[1]=top
+            box_after_adjust[2]=width
+            box_after_adjust[3]=height
+            #cv2.rectangle(rgb_full, (left, top), (right, bottom), (0, 255, 255), 2)
+            contours, max_t , box_for_IR = self.thresholding(box_after_adjust)
+            contours_list.extend(contours)
+            max_t_list.extend(max_t)
+            IR_boxes.append(box_for_IR)
+        self.ref_pair.update(self.np_img_16)
+        if self.USE_BBODY:
+            self.thd = self.ref_pair.temp2raw(self.thd_cels)
+        f_img = self.np_img_16.astype(np.float)
+        fmin = np.percentile(f_img, 0.1)
+        fmax = np.percentile(f_img, 99.9)+50
+        f_img = np.interp(f_img, [fmin,fmax],[0.0,255.0])
+        im_8 = f_img.astype(uint8)
+        tmax = self.correct_temp(self.np_img_16.max())
+        
+        if COLOR_STYLE=='BW':
+            im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_BONE)
+            cv2.drawContours(im_8, contours_list, -1, (0,0,255), thickness=2)
+        else:
+            im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_JET)
+            cv2.drawContours(im_8, contours_list, -1, (255,255,255), thickness=2)
+        for i in range(numofhead):
+            IR_box=IR_boxes[i]
+            IR_left=IR_box[0]
+            IR_top=IR_box[1]
+            IR_width=IR_box[2]
+            IR_height=IR_box[3]
+            IR_right=int(IR_left+IR_width)
+            IR_bottom=int(IR_top+IR_height)
+            box_one_head=boxes_from_yolo[i][2]
+            center_x=box_one_head[0]
+            center_y=box_one_head[1]
+            width = box_one_head[2]
+            height = box_one_head[3]
+            left = int(center_x-width/2)
+            top = int(center_y-height/2)
+            right=int(left+width)
+            bottom=int(top+height)
+            try:
+                if max_t_list[i]>self.correct_temp(self.thd):
+                    cv2.rectangle(im_8,(IR_left,IR_top),(IR_right,IR_bottom),(0,0,255),2)
+                    cv2.rectangle(rgb_full, (left, top), (right, bottom), (0, 0, 255), 2)
+            except:
+                cv2.rectangle(im_8,(IR_left,IR_top),(IR_right,IR_bottom),(0,255,0),2)
+                face_to_blur=rgb_full[top:top+int(height),left:left+int(width),0:3]
+                blur=cv2.GaussianBlur(face_to_blur,(51,51),0)
+                rgb_full[top:top+int(height),left:left+int(width),0:3]=blur   
             
             alart_flag = False
             for item in max_t_list:
@@ -536,23 +553,11 @@ class insight_thermal_analyzer(object):
 
             self.draw_contours(im_8, self.np_img_16, contours_list)
 
-        else:  
-            self.ref_pair.update(self.np_img_16)        
-            f_img = self.np_img_16.astype(np.float)
-            fmin = np.percentile(f_img, 0.1)
-            fmax = np.percentile(f_img, 99.9)+50
-            f_img = np.interp(f_img, [fmin,fmax],[0.0,255.0])
-            im_8 = f_img.astype(uint8)
-            tmax = self.correct_temp(self.np_img_16.max())
-            if COLOR_STYLE=='BW':
-                im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_BONE)
-            else:
-                im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_JET)
-
         im_8 = cv2.resize(im_8, (SCR_WIDTH//2,SCR_HEIGHT), interpolation=0)
         cv2.rectangle(im_8, (self.logo.shape[1], 0), (SCR_WIDTH//2-self.setting_logo.shape[1], 57), (50,50,50), cv2.FILLED)
-        cv2.putText(im_8, 'THD %.2f  EMISIV(w/s)%.2f MAX %.2f'%(
-                    self.correct_temp(self.thd), 
+        cv2.putText(im_8, 'THD %.1f (%d) EMISIV(w/s)%.2f MAX %.2f'%(
+                    self.thd_cels, 
+                    self.thd, 
                     self.corrPara.emissivity,
                     tmax), 
                     (15+self.logo.shape[1], 57//2+5), self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
@@ -672,6 +677,10 @@ class insight_thermal_analyzer(object):
         fid.write('%d'%self.thd)
         fid.close()
 
+        fid = open('thd_cels.cfg','w')
+        fid.write('%.1f'%self.thd_cels)
+        fid.close()
+
     def requestCameraData(self):
         err = self.dll.SendCameraMessage(self.mHandle, byref(self.keepAlive),
                                 td.IRF_MESSAGE_TYPE_T._IRF_REQ_CAM_DATA.value,0,0)
@@ -720,7 +729,7 @@ class insight_thermal_analyzer(object):
         if ( x>left_of_setting and x<right_of_setting ) and (y>top_of_setting and y<bottom_of_setting):
             if event == 1 and not(self.show_mask):
                 import setting_dialog
-                setting_proc=mp.Process(target=setting_dialog.setting, args=(0,))
+                setting_proc=mp.Process(target=setting_dialog.setting, args=(self.action_q,))
                 setting_proc.daemon=True
                 setting_proc.start()
                 print("Yeah")

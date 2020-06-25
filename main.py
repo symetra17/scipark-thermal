@@ -30,6 +30,7 @@ import pickle
 #from PIL import Image,ImageTk
 import tkinter as tk
 import queue
+from cv2 import cv2
 
 # Recording extension header and tail number of frame
 # when an overtemperature event occur, a few seconds of record ahead of the 
@@ -333,13 +334,11 @@ class insight_thermal_analyzer(object):
     def load_app_settings(self):
         self.font = cv2.FONT_HERSHEY_SIMPLEX
         self.load_thd()
-        if os.path.exists('emissivity.cfg'):
-            try:
-                fid=open('emissivity.cfg','r')
-                self.corrPara.emissivity = float(fid.read())
-                fid.close()
-            except Exception as e:
-                print(e.message)
+        fname = 'emissivity.cfg'
+        if os.path.exists(fname):
+            fid=open(fname, 'r')
+            self.corrPara.emissivity = float(fid.read())
+            fid.close()
         fid = open(r'TempMapTable_L.bin','rb')
         x = fid.read()
         nfloat = len(x)//4
@@ -347,18 +346,6 @@ class insight_thermal_analyzer(object):
         self.temp_lut = struct.unpack('f'*nfloat, x)
         for n in range(0, 65535):
             self.pfloat_lut[n] = self.temp_lut[n]
-
-    def disconnect(self):
-        if self.mHandle.value != None:
-            self.dll.CloseConnect.restype = c_short
-            self.dll.CloseConnect.argtypes = [POINTER(wintypes.HANDLE), c_uint]
-            try:
-                err = self.dll.CloseConnect(byref(self.mHandle), self.keepAlive)
-                if err == 1:
-                    return err
-            except Exception as e:
-                print("Exception in close connection ", e.message)
-        return None
 
     def connect(self):
         print("Connecting",COX_MODEL, self.ip, self.port)
@@ -511,7 +498,7 @@ class insight_thermal_analyzer(object):
                 self.save_thd()
             elif action[0] == 'emv':
                 self.corrPara.emissivity=action[1]
-                self.save_emissivity
+                self.save_emissivity()
             elif action[0] == 'bbody':
                 self.USE_BBODY=action[1]
                 self.save_bbody_mode()
@@ -695,7 +682,6 @@ class insight_thermal_analyzer(object):
 
         if self.ir_full:
             im_8_full=cv2.resize(im_8,(SCR_WIDTH,SCR_HEIGHT))
-            print(im_8_full.shape)
             self.scr_buff=im_8_full
         else:
             rgb_buf=cv2.resize(rgb_full,(SCR_WIDTH//2,SCR_HEIGHT))
@@ -728,39 +714,6 @@ class insight_thermal_analyzer(object):
         if not self.disp_q_rgb.full():
             self.disp_q_rgb.put(rgb_full)
 
-        #key = cv2.waitKey(30)
-        #if key & 0xff == ord('+'):
-        #    if COX_MODEL == 'CG':
-        #        self.thd += 6
-        #    else:
-        #        self.thd += 10
-        #    self.save_thd()
-        #elif key & 0xff == ord('-'):
-        #    if COX_MODEL == 'CG':
-        #        self.thd -= 6
-        #    else:
-        #        self.thd -= 10
-        #    self.save_thd()
-        #elif key & 0xff == ord('w'):
-        #    self.corrPara.emissivity += 0.01
-        #    self.save_emissivity()
-        #elif key & 0xff == ord('s'):
-        #    self.corrPara.emissivity -= 0.01
-        #    self.save_emissivity()
-        #elif key & 0xff == ord('b'):
-        #    if self.USE_BBODY:
-        #        self.USE_BBODY = False
-        #        self.save_bbody_mode()
-        #    else:
-        #        self.USE_BBODY = True
-        #        self.save_bbody_mode()
-        #elif key&0xff==ord(' '):
-        #    if self.show_mask:
-        #        self.show_mask = False
-        #    else:
-        #        self.show_mask = True
-        #elif key & 0xff == ord('q'):
-        #    return -1
         return 0
 
     def save_emissivity(self):

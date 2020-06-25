@@ -48,6 +48,7 @@ COLOR_STYLE ='BW'
 NO_HARDWARE_TEST = False
 yolo_host = '127.0.0.1'
 yolo_port = 50000
+IR_full_scr=False
 
 storage_q = mp.Queue(2*RECORD_EXTEND_T+10)
 buf_q = collections.deque(maxlen=RECORD_EXTEND_T)
@@ -83,7 +84,8 @@ class insight_thermal_analyzer(object):
             return t_c
 
     def __init__(self, ip, port, sn_q, sto_q, action_q, sen_q, sock):
-
+        self.weekdaydict={0:"MON",1:"TUE",2:"WED",3:"THU",4:"FRI",5:"SAT",6:"SUN"}
+        print("aa")
         print('Loading Thermal camera library')
         dll_path = opjoin('dll', 'CG_ThermalCamDll_2018.dll')
         try:
@@ -98,11 +100,14 @@ class insight_thermal_analyzer(object):
         self.load_app_settings()
         self.fid = open(NMAP_FILE, "r+")
         self.map = mmap.mmap(self.fid.fileno(), 0)
+        self.COLOR_STYLE=COLOR_STYLE
         self.width=1080
         self.height=810
         self.crop_width=1320
         self.crop_height=990
         self.load_offset_of_camera()
+        self.load_face_offset()
+        print(self.detection_offset_x,self.detection_offset_y)
         buf = np.empty((480, 640, 3), dtype=uint8)
         self.hour_dir = ''
         self.record_counter = 0
@@ -116,6 +121,7 @@ class insight_thermal_analyzer(object):
         self.src_rgb = np.zeros((SCR_HEIGHT,SCR_WIDTH//2,3),dtype=uint8)
         self.ref_pair = rp.reference_pair()
         self.load_bbody_mode()
+        self.ir_full=IR_full_scr
         try:
             self.mask_bw = np.load('mask.npy')
         except:
@@ -132,6 +138,8 @@ class insight_thermal_analyzer(object):
         self.cursor_reading = 0
         self.free_space_cnt=0
         self.sock = sock
+        self.fps_counter=0
+        self.fps=0
         self.disp_q = queue.Queue(3)
         self.imshow_thread = threading.Thread(target=self.imshow_loop, args=(self.disp_q, ))
         self.imshow_thread.start()
@@ -142,17 +150,27 @@ class insight_thermal_analyzer(object):
     def imshow_loop(self, disp_q):
         title = 'Insightrobotics Fever Monitoring System'
         cv2.namedWindow(title, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+        cv2.resizeWindow(title,SCR_WIDTH,SCR_HEIGHT)
         cv2.setMouseCallback(title, self.mouse_callback)
         while True:
             if not disp_q.empty():
+                if self.fps_counter==0:
+                    starttime=time.time()
                 img = disp_q.get()
                 cv2.imshow(title, img)
+                if self.fps_counter>10:
+                    sec=time.time()-starttime
+                    self.fps=self.fps_counter/sec
+                    starttime=time.time()
+                    self.fps_counter=0
+                self.fps_counter+=1
             else:
                 cv2.waitKey(10)
 
     def imshow_loop_rgb(self, disp_q_rgb):
         title = 'Visible Video Window'
         cv2.namedWindow(title, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+        cv2.resizeWindow(title,800,600)        
         while True:
             if not disp_q_rgb.empty():
                 img = disp_q_rgb.get()
@@ -207,6 +225,49 @@ class insight_thermal_analyzer(object):
             self.offset_y=0
             print("cannot acces ",fname_y)
     
+    def load_face_offset(self):
+        fname_x='detection_offset_x.cfg'
+        fname_y='detection_offset_y.cfg'
+        if os.path.exists(fname_x):
+            try:
+                fid=open(fname_x,'r')
+                self.detection_offset_x=int(fid.read())
+                fid.close()
+            except:
+                pass
+        else:
+            self.offset_x=0
+            print("cannot acces ",fname_x)   
+
+        if os.path.exists(fname_y):
+            try:
+                fid=open(fname_y,'r')
+                self.detection_offset_y=int(fid.read())
+                fid.close()
+            except:
+                pass
+        else:
+            self.offset_y=0
+            print("cannot acces ",fname_y)
+
+    def save_detection_offset(self):
+        fname_x='detection_offset_x.cfg'
+        fname_y='detection_offset_y.cfg'
+        if os.path.exists(fname_x):
+            try:
+                fid=open(fname_x,'w')
+                fid.write('%d'%self.detection_offset_x)
+                fid.close()
+            except:
+                pass
+        if os.path.exists(fname_y):
+            try:
+                fid=open(fname_y,'w')
+                fid.write('%d'%self.detection_offset_y)
+                fid.close()
+            except:
+                pass
+
     def init_cam_vari(self,ip,port):
         self.npix = THERMAL_WIDTH * THERMAL_HEIGHT
         self.ip = ip
@@ -350,6 +411,8 @@ class insight_thermal_analyzer(object):
         self.sock.sendall(pack_img)
         data = self.sock.recv(4096)
         boxes = pickle.loads(data)
+        if len(boxes)>29:
+            boxes=boxes[:29]
         return boxes
 
     def thresholding(self,box):
@@ -357,12 +420,10 @@ class insight_thermal_analyzer(object):
         b_img[b_img <= self.thd] = 0
         b_img[b_img > self.thd] = 255        
         #negative sign for detection offset is to compansate the small distortion in the thermal cam
-        detection_offset_x=-self.offset_x//2
-        detection_offset_y=-self.offset_y//2
         width_ratio=b_img.shape[1]/self.crop_width
         height_ratio=b_img.shape[0]/self.crop_height
-        left = int(box[0]*width_ratio)
-        top = int(box[1]*height_ratio)
+        left = int(box[0]*width_ratio)+self.detection_offset_x
+        top = int(box[1]*height_ratio)+self.detection_offset_y
         width = int(box[2]*width_ratio)
         height = int(box[3]*height_ratio)
         right=(left+width)
@@ -414,34 +475,84 @@ class insight_thermal_analyzer(object):
             cv2.putText(img8, '%.1f'%max_t, (lb_xpos,lb_ypos), self.font,
                         0.5, color, 1, cv2.LINE_AA)
     
+    def change_yolo_to_left_top(self,box_from_yolo):
+        x_ratio=self.crop_width/608
+        y_ratio=self.crop_height/608
+        center_x=box_from_yolo[0]
+        center_y=box_from_yolo[1]
+        width = box_from_yolo[2]
+        height = box_from_yolo[3]
+        left = (center_x-width/2)
+        top = (center_y-height/2)
+        box_after_adjust=[0,0,0,0]
+        box_after_adjust[0]=left*x_ratio
+        box_after_adjust[1]=top*y_ratio
+        box_after_adjust[2]=width*x_ratio
+        box_after_adjust[3]=height*y_ratio
+        return box_after_adjust
+
+    def croppping(self,img):
+        target_width=self.crop_width #original:1920
+        target_height=self.crop_height #original:1080
+        originalwidth=img.shape[1]
+        originalheight=img.shape[0]
+        offset_x=self.offset_x
+        offset_y=self.offset_y
+        img_copy=img.copy()
+        img=img_copy[(originalheight-target_height)//2+offset_y:originalheight-(originalheight-target_height)//2+offset_y,
+                            (originalwidth-target_width)//2+offset_x:originalwidth-(originalwidth-target_width)//2+offset_x,0:3]
+        return img
+
     def processing(self):
         if not self.action_q.empty():
             action = self.action_q.get()
             if action[0] == 'thd':
-                self.thd_cels = action[1]
+                self.thd_cels = round(action[1],1)
                 self.save_thd()
+            elif action[0] == 'emv':
+                self.corrPara.emissivity=action[1]
+                self.save_emissivity
+            elif action[0] == 'bbody':
+                self.USE_BBODY=action[1]
+                self.save_bbody_mode()
 
-            #if action=='thd+':
+            elif action=='thd+':
+                self.ir_full=True
             #    self.thd+=30
             #    self.save_thd()
-            #elif action=='thd-':
+            elif action=='thd-':
+                self.ir_full=False
             #    self.thd-=30
             #    self.save_thd()
-            #elif action=='offset+':
-            #    self.corrPara.emissivity += 0.01
+            elif action=='offset+':
+               self.detection_offset_x += 1
+               self.save_detection_offset()
             #    self.save_emissivity()
-            #elif action=='offset-':
-            #    self.corrPara.emissivity -= 0.01
+            elif action=='offset-':
+               self.detection_offset_x -= 1
+               self.save_detection_offset()
             #    self.save_emissivity()
-            #elif action=='refl':
-            #    self.ref_pair.pick_l = True
-            #elif action=='refh':
-            #    self.ref_pair.pick_h = True
-            #elif action=='ref head':
-            #    self.ref_pair.pick_head()
-            #elif action=='ref head tape':
-            #    self.ref_pair.pick_head_tape()
-
+            elif action=='refl':
+                if self.USE_BBODY:
+                    self.ref_pair.pick_l = True
+                    self.ir_full=True
+            elif action=='refh':
+                if self.USE_BBODY:
+                    self.ref_pair.pick_h = True
+                    self.ir_full=True
+            elif action=='ref head':
+               self.ref_pair.pick_head()
+            elif action=='ref head tape':
+               self.ref_pair.pick_head_tape()
+            elif action=='BW':
+                self.COLOR_STYLE=action
+            elif action=='JET':
+                self.COLOR_STYLE=action
+            elif action=='HSV':
+                self.COLOR_STYLE=action
+            elif action=='RED':
+                self.COLOR_STYLE=action
+                                
         if not self.sen_q.empty():
             temp_c = self.sen_q.get()
             self.ref_pair.sensor_feed(temp_c)
@@ -452,48 +563,23 @@ class insight_thermal_analyzer(object):
             self.np_img_16 = cv2.imread('ir_test_02.jpg',0).astype(uint16)
             self.np_img_16 = self.np_img_16 * 200
             self.np_img_16[160,120] = random.randint(16000, 18000)
-            time.sleep(0.03)
-
+            time.sleep(0.03)  
         rgb = np.frombuffer(self.map[0:RGB_NPIX], dtype=uint8)
         rgb = rgb.reshape(RGB_SHAPE)
         rgb_full=rgb.copy()
-
-        target_width=self.crop_width #original:1920
-        target_height=self.crop_height #original:1080
-        originalwidth=rgb_full.shape[1]
-        originalheight=rgb_full.shape[0]
-        offset_x=self.offset_x
-        offset_y=self.offset_y
-        rgb_copy=rgb_full.copy()
-        rgb_full=rgb_copy[(originalheight-target_height)//2+offset_y:originalheight-(originalheight-target_height)//2+offset_y,
-                            (originalwidth-target_width)//2+offset_x:originalwidth-(originalwidth-target_width)//2+offset_x,0:3]
+        rgb_full=self.croppping(rgb_full)
         cv2.resize(rgb, (SCR_WIDTH//2, SCR_HEIGHT), self.src_rgb, 
                                             interpolation=0)
-        boxes_from_yolo=self.client_to_yolo(rgb_full)
+
+        # resize image to 608 before yolo speeding up detection process significantly
+        img_608 = cv2.resize(rgb_full, (608,608), interpolation=cv2.INTER_LINEAR)
+        boxes_from_yolo=self.client_to_yolo(img_608)
         numofhead=len(boxes_from_yolo)
         contours_list=[]
         max_t_list=[]
         IR_boxes=[]
-
         for i in range(numofhead):
-            if i>29:
-                break
-            box_one_head=boxes_from_yolo[i][2]
-            center_x=box_one_head[0]
-            center_y=box_one_head[1]
-            width = box_one_head[2]
-            height = box_one_head[3]
-            left = int(center_x-width/2)
-            top = int(center_y-height/2)
-            right=int(left+width)
-            bottom=int(top+height)
-            #yolo4 return center_x and cneter_y so need to convert to left top
-            box_after_adjust=[0,0,0,0]
-            box_after_adjust[0]=left
-            box_after_adjust[1]=top
-            box_after_adjust[2]=width
-            box_after_adjust[3]=height
-            #cv2.rectangle(rgb_full, (left, top), (right, bottom), (0, 255, 255), 2)
+            box_after_adjust=self.change_yolo_to_left_top(boxes_from_yolo[i][2])
             contours, max_t , box_for_IR = self.thresholding(box_after_adjust)
             contours_list.extend(contours)
             max_t_list.extend(max_t)
@@ -507,13 +593,16 @@ class insight_thermal_analyzer(object):
         f_img = np.interp(f_img, [fmin,fmax],[0.0,255.0])
         im_8 = f_img.astype(uint8)
         tmax = self.correct_temp(self.np_img_16.max())
-        
-        if COLOR_STYLE=='BW':
+        if self.COLOR_STYLE=='BW':
             im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_BONE)
-            cv2.drawContours(im_8, contours_list, -1, (0,0,255), thickness=2)
-        else:
+        elif self.COLOR_STYLE=='JET':
             im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_JET)
-            cv2.drawContours(im_8, contours_list, -1, (255,255,255), thickness=2)
+        elif self.COLOR_STYLE=='HSV':
+            im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_HSV)
+        elif self.COLOR_STYLE=='RED':
+            im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_HOT)
+        cv2.drawContours(im_8, contours_list, -1, (255,255,255), thickness=2)
+        t0=time.time()
         for i in range(numofhead):
             IR_box=IR_boxes[i]
             IR_left=IR_box[0]
@@ -522,15 +611,13 @@ class insight_thermal_analyzer(object):
             IR_height=IR_box[3]
             IR_right=int(IR_left+IR_width)
             IR_bottom=int(IR_top+IR_height)
-            box_one_head=boxes_from_yolo[i][2]
-            center_x=box_one_head[0]
-            center_y=box_one_head[1]
-            width = box_one_head[2]
-            height = box_one_head[3]
-            left = int(center_x-width/2)
-            top = int(center_y-height/2)
-            right=int(left+width)
-            bottom=int(top+height)
+            box_one_head=self.change_yolo_to_left_top(boxes_from_yolo[i][2])
+            left=int(box_one_head[0])
+            top=int(box_one_head[1])
+            width=int(box_one_head[2])
+            height=int(box_one_head[3])
+            right=int(box_one_head[0]+box_one_head[2])
+            bottom=int(box_one_head[1]+box_one_head[3])
             try:
                 if max_t_list[i]>self.correct_temp(self.thd):
                     cv2.rectangle(im_8,(IR_left,IR_top),(IR_right,IR_bottom),(0,0,255),2)
@@ -552,15 +639,8 @@ class insight_thermal_analyzer(object):
                     self.sound_q.put(0)
 
             self.draw_contours(im_8, self.np_img_16, contours_list)
-
+        print('proc time ',int(1000*(time.time()-t0)))
         im_8 = cv2.resize(im_8, (SCR_WIDTH//2,SCR_HEIGHT), interpolation=0)
-        cv2.rectangle(im_8, (self.logo.shape[1], 0), (SCR_WIDTH//2-self.setting_logo.shape[1], 57), (50,50,50), cv2.FILLED)
-        cv2.putText(im_8, 'THD %.1f (%d) EMISIV(w/s)%.2f MAX %.2f'%(
-                    self.thd_cels, 
-                    self.thd, 
-                    self.corrPara.emissivity,
-                    tmax), 
-                    (15+self.logo.shape[1], 57//2+5), self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
         reading = self.correct_temp(self.np_img_16[self.cursor])
         x1 = self.cursor_textpos[0]-3
         y1 = self.cursor_textpos[1]-15
@@ -613,18 +693,38 @@ class insight_thermal_analyzer(object):
                     cv2.putText(self.scr_buff, 'Storage is full',
                         (15, 100), self.font, 1, (0,255,255), 2, cv2.LINE_AA)
 
+        if self.ir_full:
+            im_8_full=cv2.resize(im_8,(SCR_WIDTH,SCR_HEIGHT))
+            print(im_8_full.shape)
+            self.scr_buff=im_8_full
+        else:
+            rgb_buf=cv2.resize(rgb_full,(SCR_WIDTH//2,SCR_HEIGHT))
+            self.scr_buff[:,SCR_WIDTH//2:,:]=rgb_buf
+
+        cv2.rectangle(self.scr_buff, (self.logo.shape[1], 0), (SCR_WIDTH-self.setting_logo.shape[1], 56), (84,68,52), cv2.FILLED)
+        cv2.putText(self.scr_buff,"AI-ASSISTED BODY TEMPERATURE SCREENING SYSTEM",(15+self.logo.shape[1],57//2+5),self.font,0.64,(60, 199, 165),1,cv2.LINE_AA)
+        date=datetime.now().strftime("%Y-%m-%d ")+self.weekdaydict[datetime.today().weekday()]
+        cv2.putText(self.scr_buff,date,(SCR_WIDTH//2+50,57//2+5),self.font,0.5,(255,255,255), 1, cv2.LINE_AA)
+        now_time=datetime.now().strftime(" %H:%M:%S")
+        cv2.putText(self.scr_buff,now_time,(SCR_WIDTH//2+300,57//2+5),self.font,0.85,(228,193,110), 1, cv2.LINE_AA)
+        cv2.putText(self.scr_buff, 'THD %.1f (%d) EMISIV(w/s)%.2f MAX %.2f'%(
+                    self.thd_cels, 
+                    self.thd, 
+                    self.corrPara.emissivity,
+                    tmax), 
+                    (SCR_WIDTH-self.setting_logo.shape[1]-400, 57//2+5), self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
+        cv2.putText(self.scr_buff,'FPS: %.1f'%self.fps,(0,self.logo.shape[0]+15),self.font,0.5,(255,255,255),1,cv2.LINE_AA)
         self.scr_buff[0:self.logo.shape[0], 0:self.logo.shape[1], :] = self.logo
         #self.scr_buff[0:self.logo.shape[0], 0:self.logo.shape[1], :] += self.logo
 
         if not(self.show_mask):
-            px = SCR_WIDTH//2-self.setting_logo.shape[1]
+            px = SCR_WIDTH-self.setting_logo.shape[1]
             py = 0
-            self.scr_buff[py:py+self.setting_logo.shape[0], px:px+self.setting_logo.shape[1], :] //= 2
-            self.scr_buff[py:py+self.setting_logo.shape[0], px:px+self.setting_logo.shape[1], :] += self.setting_logo//2
+            self.scr_buff[py:py+self.setting_logo.shape[0], px:px+self.setting_logo.shape[1], :] = self.setting_logo
 
         # decouple main loop and display loop so to avoid main loop freeze duriong mouse drag
         if not self.disp_q.full():
-            self.disp_q.put(self.scr_buff[:,0:SCR_WIDTH//2,:])
+            self.disp_q.put(self.scr_buff)
         if not self.disp_q_rgb.full():
             self.disp_q_rgb.put(rgb_full)
 
@@ -674,6 +774,7 @@ class insight_thermal_analyzer(object):
         else:
             fname = 'thd.cfg'
         fid=open(fname,'w')
+        self.change_thd(self.thd_cels)
         fid.write('%d'%self.thd)
         fid.close()
 
@@ -718,27 +819,27 @@ class insight_thermal_analyzer(object):
 
     def mouse_callback(self, event, x, y, flags, param):
         h = self.scr_buff.shape[0]
-        w = SCR_WIDTH//2
+        w = SCR_WIDTH
         xratio = float(x)/w
         yratio = float(y)/h
         top_of_setting=0
-        left_of_setting=SCR_WIDTH//2-self.setting_logo.shape[1]
+        left_of_setting=SCR_WIDTH-self.setting_logo.shape[1]
         bottom_of_setting=self.setting_logo.shape[0]
-        right_of_setting=SCR_WIDTH//2
+        right_of_setting=SCR_WIDTH
 
         if ( x>left_of_setting and x<right_of_setting ) and (y>top_of_setting and y<bottom_of_setting):
             if event == 1 and not(self.show_mask):
-                import setting_dialog
-                setting_proc=mp.Process(target=setting_dialog.setting, args=(self.action_q,))
+                import setting
+                setting_proc=mp.Process(target=setting.func1,args=(self.action_q,))
                 setting_proc.daemon=True
                 setting_proc.start()
-                print("Yeah")
+
         if event == 0:
           if not self.show_mask:
             xcoo = int(xratio*self.np_img_16.shape[1])
             ycoo = int(yratio*self.np_img_16.shape[0])
             self.cursor = (ycoo,xcoo)
-            xcoo = int(xratio*SCR_WIDTH//2)
+            xcoo = int(xratio*SCR_WIDTH)
             ycoo = int(yratio*SCR_HEIGHT)
             self.cursor_textpos = (xcoo+10, ycoo-5)
 
@@ -747,7 +848,7 @@ class insight_thermal_analyzer(object):
             if self.show_mask:
                 xcoor = int(self.mask_bw.shape[1] * xratio)
                 ycoor = int(self.mask_bw.shape[0] * yratio)
-                self.mask_color[ycoor, xcoor] = (0, 69, 255)  # rgb 
+                self.mask_color[ycoor, xcoor] = (60, 199, 165)  # rgb 
                 self.mask_bw[ycoor, xcoor] = 0
                 np.save('mask', self.mask_bw)
                 
@@ -847,7 +948,6 @@ if __name__ == '__main__':
     sensor_que = mp.Queue(2)
     sensor_p = mp.Process(target=senproc.sensor_proc, args=(sensor_que,))
     sensor_p.daemon = True
-    sensor_p.start()
 
     while True:
         tp = mp.Process(target=thermal_process, args=(sound_q,storage_q,action_q,sensor_que,sock,))

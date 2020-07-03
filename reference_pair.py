@@ -1,5 +1,7 @@
 from scipy import interpolate
 import cv2
+import os
+from os.path import join as opjoin
 
 
 class ref_point(object):
@@ -15,10 +17,25 @@ class ref_point(object):
 class reference_pair(object):
 
     def __init__(self):
+        fname_l=opjoin('cfg','ref_l.cfg')
+        fname_h=opjoin('cfg','ref_h.cfg')
+        if os.path.exists(fname_l):
+            fid=open(fname_l,'r')
+            self.temp_l=float(fid.read())
+            fid.close()
+        else:
+            self.temp_l=36.0
+        if os.path.exists(fname_h):
+            fid=open(fname_h,'r')
+            self.temp_h=float(fid.read())
+            fid.close()
+        else:
+            self.temp_l=40.0
+        self.temp_l
         self.font = cv2.FONT_HERSHEY_SIMPLEX
         self.x_l = 0.1         # x position, unit in ratio
         self.y_l = 0.1         # y position, unit in ratio
-        self.temp_l = 36     # in degree
+        self.temp_l = 36.0     # in degree
         self.raw_l = 0         # in sensor output scale, 0-65535
         self.x_h = 0.2
         self.y_h = 0.1
@@ -31,20 +48,24 @@ class reference_pair(object):
         self.head_tape = ref_point()
 
         try:
-            fid=open('x_l.cfg','r')
+            path=opjoin('cfg','x_l.cfg')
+            fid=open(path,'r')
             self.x_l = float(fid.read())
             fid.close()
-            fid=open('y_l.cfg','r')
+            path=opjoin('cfg','y_l.cfg')
+            fid=open(path,'r')
             self.y_l = float(fid.read())
             fid.close()
         except:
             self.save_l()
 
         try:
-            fid=open('x_h.cfg','r')
+            path=opjoin('cfg','x_h.cfg')
+            fid=open(path,'r')
             self.x_h = float(fid.read())
             fid.close()
-            fid=open('y_h.cfg','r')
+            path=opjoin('cfg','y_h.cfg')
+            fid=open(path,'r')
             self.y_h = float(fid.read())
             fid.close()
         except:
@@ -85,19 +106,37 @@ class reference_pair(object):
             self.head_tape.show = True
 
     def save_l(self):
-        fid=open('x_l.cfg','w')
+        path=opjoin('cfg','x_l.cfg')
+        fid=open(path,'w')
         fid.write('%.3f'%self.x_l)
         fid.close()
-        fid=open('y_l.cfg','w')
+        path=opjoin('cfg','y_l.cfg')
+        fid=open(path,'w')
         fid.write('%.3f'%self.y_l)
         fid.close()
 
     def save_h(self):
-        fid=open('x_h.cfg','w')
+        path=opjoin('cfg','x_h.cfg')
+        fid=open(path,'w')
         fid.write('%.3f'%self.x_h)
         fid.close()
-        fid=open('y_h.cfg','w')
+        path=opjoin('cfg','y_h.cfg')
+        fid=open(path,'w')
         fid.write('%.3f'%self.y_h)
+        fid.close()
+
+    def save_temp_l(self,temp):
+        path=opjoin('cfg','ref_l.cfg')
+        fid=open(path,'w')
+        self.temp_l=float(temp)
+        fid.write('%.1f'%self.temp_l)
+        fid.close()
+
+    def save_temp_h(self,temp):
+        path=opjoin('cfg','ref_h.cfg')
+        fid=open(path,'w')
+        self.temp_h=float(temp)
+        fid.write('%.1f'%self.temp_h)
         fid.close()
 
     def update(self, img):

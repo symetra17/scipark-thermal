@@ -115,6 +115,7 @@ class insight_thermal_analyzer(object):
         self.storage_q = sto_q
         self.logo = cv2.imread('logo.png')
         self.setting_logo  = cv2.imread('Setting-icon.png')
+        self.quit_logo =cv2.imread('quit-logo.png')
         self.scr_buff = np.empty((SCR_HEIGHT, SCR_WIDTH, 3), dtype=uint8)   # preallocate this array to speed up
         self.action_q = action_q
         self.sen_q = sen_q
@@ -142,11 +143,12 @@ class insight_thermal_analyzer(object):
         self.fps=0
         self.tmax=0
         self.exit_all=False
-        import setting
-        self.setting_proc=mp.Process(target=setting.func1,args=(self.action_q,))
-        self.setting_proc.daemon=True
+        # import setting
+        # self.setting_proc=mp.Process(target=setting.func1,args=(self.action_q,))
+        # self.setting_proc.daemon=True
         self.disp_q = queue.Queue(3)
         self.imshow_thread = threading.Thread(target=self.imshow_loop, args=(self.disp_q, ))
+        self.imshow_thread.daemon=True
         self.imshow_thread.start()
         # self.disp_q_rgb = queue.Queue(3)
         # self.imshow_thread_rgb = threading.Thread(target=self.imshow_loop_rgb, args=(self.disp_q_rgb, ))
@@ -158,42 +160,45 @@ class insight_thermal_analyzer(object):
         cv2.resizeWindow(title,SCR_WIDTH,SCR_HEIGHT)
         cv2.setMouseCallback(title, self.mouse_callback)
         while True:
-            if not disp_q.empty():
-                if self.fps_counter==0:
-                    starttime=time.time()
-                img = disp_q.get()
-                if not (self.ir_full):
-                    rgb_buf=cv2.resize(img,(SCR_WIDTH//2,SCR_HEIGHT),interpolation=0)
-                    self.scr_buff[:,SCR_WIDTH//2:,:]=rgb_buf
-                cv2.rectangle(self.scr_buff, (self.logo.shape[1], 0), (SCR_WIDTH-self.setting_logo.shape[1], 56), (84,68,52), cv2.FILLED)
-                cv2.putText(self.scr_buff,"AI-ASSISTED BODY TEMPERATURE SCREENING SYSTEM",(50+self.logo.shape[1],57//2+5),self.font,0.64,(60, 199, 165),1,cv2.LINE_AA)
-                date=datetime.now().strftime("%Y-%m-%d ")+self.weekdaydict[datetime.today().weekday()]
-                cv2.putText(self.scr_buff,date,(SCR_WIDTH//2+50,57//2+5),self.font,0.5,(255,255,255), 1, cv2.LINE_AA)
-                now_time=datetime.now().strftime(" %H:%M:%S")
-                cv2.putText(self.scr_buff,now_time,(SCR_WIDTH//2+190,57//2+6),self.font,0.85,(228,193,110), 1, cv2.LINE_AA)
-                cv2.putText(self.scr_buff, 'THD %.1f (%d) EMISIV(w/s)%.2f MAX %.2f'%(
-                            self.thd_cels, 
-                            self.thd, 
-                            self.corrPara.emissivity,
-                            self.tmax), 
-                            (SCR_WIDTH-self.setting_logo.shape[1]-400, 57//2+5), self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
-                cv2.putText(self.scr_buff,'FPS: %.1f '%self.fps,(0,self.logo.shape[0]+15),self.font,0.5,(255,255,255),1,cv2.LINE_AA)
-                self.scr_buff[0:self.logo.shape[0], 0:self.logo.shape[1], :] = self.logo
-                px = SCR_WIDTH-self.setting_logo.shape[1]
-                py = 0
-                self.scr_buff[py:py+self.setting_logo.shape[0], px:px+self.setting_logo.shape[1], :] = self.setting_logo
-                cv2.imshow(title, self.scr_buff)
-                if self.fps_counter>10:
-                    sec=time.time()-starttime
-                    self.fps=self.fps_counter/sec
-                    starttime=time.time()
-                    self.fps_counter=0
-                self.fps_counter+=1
-                if self.exit_all:
+            if self.exit_all:
                     cv2.destroyAllWindows()
                     break
             else:
-                cv2.waitKey(10)
+                if not disp_q.empty():
+                    if self.fps_counter==0:
+                        starttime=time.time()
+                    img = disp_q.get()
+                    if not (self.ir_full):
+                        rgb_buf=cv2.resize(img,(SCR_WIDTH//2,SCR_HEIGHT),interpolation=0)
+                        self.scr_buff[:,SCR_WIDTH//2:,:]=rgb_buf
+                    cv2.rectangle(self.scr_buff, (self.logo.shape[1], 0), (SCR_WIDTH-self.setting_logo.shape[1], 56), (84,68,52), cv2.FILLED)
+                    cv2.putText(self.scr_buff,"AI-ASSISTED BODY TEMPERATURE SCREENING SYSTEM",(50+self.logo.shape[1],57//2+5),self.font,0.64,(60, 199, 165),1,cv2.LINE_AA)
+                    date=datetime.now().strftime("%Y-%m-%d ")+self.weekdaydict[datetime.today().weekday()]
+                    cv2.putText(self.scr_buff,date,(SCR_WIDTH//2+50,57//2+5),self.font,0.5,(255,255,255), 1, cv2.LINE_AA)
+                    now_time=datetime.now().strftime(" %H:%M:%S")
+                    cv2.putText(self.scr_buff,now_time,(SCR_WIDTH//2+190,57//2+6),self.font,0.85,(228,193,110), 1, cv2.LINE_AA)
+                    cv2.putText(self.scr_buff, 'THD %.1f (%d) EMISIV(w/s)%.2f MAX %.2f'%(
+                                self.thd_cels, 
+                                self.thd, 
+                                self.corrPara.emissivity,
+                                self.tmax), 
+                                (SCR_WIDTH-self.setting_logo.shape[1]-500, 57//2+5), self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
+                    cv2.putText(self.scr_buff,'FPS: %.1f '%self.fps,(0,self.logo.shape[0]+15),self.font,0.5,(255,255,255),1,cv2.LINE_AA)
+                    self.scr_buff[0:self.logo.shape[0], 0:self.logo.shape[1], :] = self.logo
+                    px = SCR_WIDTH-self.quit_logo.shape[1]
+                    py = 0
+                    self.scr_buff[py:py+self.quit_logo.shape[0], px:px+self.quit_logo.shape[1], :] = self.quit_logo
+                    self.scr_buff[py:py+self.setting_logo.shape[0], px-self.setting_logo.shape[1]:px, :] = self.setting_logo
+                    cv2.imshow(title, self.scr_buff)
+                    if self.fps_counter>10:
+                        sec=time.time()-starttime
+                        self.fps=self.fps_counter/sec
+                        starttime=time.time()
+                        self.fps_counter=0
+                    self.fps_counter+=1
+                else:
+                    cv2.waitKey(10)
+        return
 
     # def imshow_loop_rgb(self, disp_q_rgb):
     #     title = 'Visible Video Window'
@@ -433,20 +438,22 @@ class insight_thermal_analyzer(object):
             boxes=boxes[:29]
         return boxes
 
-    def thresholding(self,boxes):
+    def thresholding(self, boxes):
+        # thresholding and find hot object contours
+
         b_img = self.np_img_16.copy()
         b_img[b_img <= self.thd] = 0
         b_img[b_img > self.thd] = 255
-        blank_img=np.zeros(b_img.shape)
-        #negative sign for detection offset is to compansate the small distortion in the thermal cam
+        blank_img = np.zeros(b_img.shape)   # should change to np.zeros_like()
+        # negative sign for detection offset is to compansate the small distortion in the thermal cam
         for i in range(len(boxes)):
-            box=boxes[i]
-            left=box[0]
-            top=box[1]
-            width=box[2]
-            height=box[3]
+            box   = boxes[i]
+            left  = box[0]
+            top   = box[1]
+            width = box[2]
+            height= box[3]
             blank_img[top:top+height,left:left+width]=b_img[top:top+height,left:left+width]
-        b_img=blank_img
+        b_img = blank_img
         b_img = b_img.astype(uint8)
         mask = cv2.resize(self.mask_bw, (b_img.shape[1],b_img.shape[0]), 
                     interpolation=0)//255
@@ -462,9 +469,11 @@ class insight_thermal_analyzer(object):
             mmax = (img16*mask).max()
             max_t = self.correct_temp(mmax)
             max_t_list.append(max_t)
+        # return object contour and their max temp    
         return contours, max_t_list
 
     def draw_contours(self, img8, img16, contours):
+        # should change to draw_contours(self, img8, contours, max_t_list)
         for n,_ in enumerate(contours):
             mask = np.zeros(img8.shape[0:2], dtype=uint8)
             cv2.fillPoly(mask, pts=contours[n:n+1], color=(1))
@@ -510,15 +519,18 @@ class insight_thermal_analyzer(object):
         return box_after_adjust
 
     def croppping(self,img):
-        target_width=self.crop_width #original:1920
-        target_height=self.crop_height #original:1080
-        originalwidth=img.shape[1]
-        originalheight=img.shape[0]
-        offset_x=self.offset_x
-        offset_y=self.offset_y
-        img_copy=img.copy()
-        img=img_copy[(originalheight-target_height)//2+offset_y:originalheight-(originalheight-target_height)//2+offset_y,
-                            (originalwidth-target_width)//2+offset_x:originalwidth-(originalwidth-target_width)//2+offset_x,0:3]
+        target_width = self.crop_width #original:1920
+        target_height = self.crop_height #original:1080
+        originalwidth = img.shape[1]
+        originalheight = img.shape[0]
+        img_copy = img.copy()
+        startx = (originalwidth - target_width)//2 + self.offset_x
+        # should be simplified to endx = startx + target_width
+        endx   = originalwidth - (originalwidth - target_width)//2 + self.offset_x   
+        starty = (originalheight - target_height)//2 + self.offset_y
+        # should be simplified to endy = starty + target_height
+        endy   = originalheight - (originalheight-target_height)//2 + self.offset_y  
+        img = img_copy[starty:endy, startx:endx, 0:3]
         return img
 
     def processing(self):
@@ -589,7 +601,9 @@ class insight_thermal_analyzer(object):
                 #         self.ir_full=True
                 #         self.ref_pair.save_temp_h(float(action[1]))
                 elif action=='quit':
-                    self.exit_all=True
+                    #self.exit_all=True
+                    if self.setting_proc.is_alive():
+                        self.setting_proc.terminate()
                 elif action=='ref head':
                     self.ref_pair.pick_head()
                 elif action=='ref head tape':
@@ -686,21 +700,20 @@ class insight_thermal_analyzer(object):
                     blur=cv2.blur(face_to_blur,(25,25))
                     rgb_full[top:top+int(height),left:left+int(width),0:3]=blur
                 
-                alart_flag = False
-                for item in max_t_list:
-                    if item < 42.1:
-                        alart_flag = True
+            alart_flag = False
+            for item in max_t_list:
+                if item < 42.1:
+                    alart_flag = True
 
-                if alart_flag:
-                    self.record_counter = RECORD_EXTEND_T
-                    if not self.sound_q.full():
-                        self.sound_q.put(0)
+            if alart_flag:
+                self.record_counter = RECORD_EXTEND_T
+                if not self.sound_q.full():
+                    self.sound_q.put(0)
             
             self.draw_contours(im_8, self.np_img_16, contours_list)
             im_8 = cv2.resize(im_8, (SCR_WIDTH//2,SCR_HEIGHT), interpolation=0)
             if self.USE_BBODY:
                 self.ref_pair.draw(im_8)
-
 
             if self.show_mask:
                 try:
@@ -759,10 +772,6 @@ class insight_thermal_analyzer(object):
             #     self.disp_q_rgb.put(rgb_full,im_8)
             #print(int(1000*(time.time()-t0-t2)))
             
-            # if self.setting_proc.is_alive():
-            #     print("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-            # else:
-            #     print("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
         else:
             pass
         return 0
@@ -816,45 +825,60 @@ class insight_thermal_analyzer(object):
             print("Exception in Set NUC message",e.message)        
         return err
     
-    def saveIRimage(self,Img):
-        currenttime = datetime.now().strftime("%Y_%m_%d_%H.%M.%S.%f")
-        fullpath = '%s/cap_%s.jpg' % ('IRImage', currenttime)
-        Img = np.ceil(Img*255)
-        cv2.imwrite(fullpath, Img, [cv2.IMWRITE_JPEG_QUALITY, 90])
-
     def mouse_callback(self, event, x, y, flags, param):
         h = self.scr_buff.shape[0]
         w = SCR_WIDTH
         xratio = float(x)/w
         yratio = float(y)/h
+        top_of_quit=0
+        left_of_quit=SCR_WIDTH-self.quit_logo.shape[1]
+        bottom_of_quit=self.quit_logo.shape[0]
+        right_of_quit=SCR_WIDTH
         top_of_setting=0
-        left_of_setting=SCR_WIDTH-self.setting_logo.shape[1]
-        bottom_of_setting=self.setting_logo.shape[0]
-        right_of_setting=SCR_WIDTH
+        left_of_setting=SCR_WIDTH-self.setting_logo.shape[1]-self.quit_logo.shape[1]
+        bottom_of_setting=self.quit_logo.shape[0]
+        right_of_setting=SCR_WIDTH-self.quit_logo.shape[1]
+
+        if ( x>left_of_quit and x<right_of_quit ) and (y>top_of_quit and y<bottom_of_quit):
+            if event == 1 and not(self.show_mask):
+                    self.exit_all=True 
+                # try:
+                #     if self.setting_proc.is_alive():
+                #         self.setting_proc.terminate()
+                # except:
+                #     pass
+                # sys.exit()
+            # if event == 1 and not(self.show_mask):
+            #     self.setting_proc.start()
 
         if ( x>left_of_setting and x<right_of_setting ) and (y>top_of_setting and y<bottom_of_setting):
             if event == 1 and not(self.show_mask):
+                import setting
+                self.setting_proc=mp.Process(target=setting.func1,args=(self.action_q,))
+                self.setting_proc.daemon=True
                 self.setting_proc.start()
 
         if event == 0:
           if not self.show_mask:
-            xcoo = int(xratio*self.np_img_16.shape[1]*2)
-            ycoo = int(yratio*self.np_img_16.shape[0])
-            if xcoo>=self.np_img_16.shape[1]:
-                xcoo=self.np_img_16.shape[1]-1
-            self.cursor = (ycoo,xcoo)
-            xcoo = int(x)
-            ycoo = int(y)
-            self.cursor_textpos = (xcoo+10, ycoo-5)
-
+            try:
+                xcoo = int(x)
+                ycoo = int(y)
+                self.cursor_textpos = (xcoo+10, ycoo-5)
+            except:
+                pass
         if event == 1:
             self.ref_pair.click({'x ratio':xratio, 'y ratio':yratio})
             if self.show_mask:
                 xcoor = int(self.mask_bw.shape[1] * xratio)
                 ycoor = int(self.mask_bw.shape[0] * yratio)
-                self.mask_color[ycoor, xcoor] = (60, 199, 165)  # rgb 
-                self.mask_bw[ycoor, xcoor] = 0
-                np.save('mask', self.mask_bw)
+                if self.mask_bw[ycoor,xcoor]==0:
+                    self.mask_color[ycoor, xcoor] = (0,0,0)
+                    self.mask_bw[ycoor, xcoor] = 255
+                    np.save('mask', self.mask_bw)
+                else:
+                    self.mask_color[ycoor, xcoor] = (60, 199, 165)  # rgb 
+                    self.mask_bw[ycoor, xcoor] = 0
+                    np.save('mask', self.mask_bw)
                 
 
         elif event == 2:
@@ -875,10 +899,7 @@ class insight_thermal_analyzer(object):
 
 def rgb_capture_process(ipaddr):
     ipcam = hikvision.HikVision()
-    ipport = "8000"
-    userName = "admin"
-    password = "insight108!"
-    ipcam.vis_init(ipaddr, ipport, userName, password)
+    ipcam.vis_init(ipaddr, "8000", "admin", "insight108!")
     ipcam.login()
     while True:
         time.sleep(10)
@@ -905,8 +926,7 @@ def thermal_process(ip, sn_q, sto_q, acn_q, sns_q,img_q, sock):
                 pass
     else:
         cox.connect()
-        print("shoudl break")
-        return 0
+        return 
 
 if __name__ == '__main__':
     thermal_ip_fname=opjoin('cfg','thermal_ip.cfg')
@@ -971,9 +991,14 @@ if __name__ == '__main__':
     raw_img_proc.start()
 
     sensor_que = mp.Queue(2)
-    sensor_p = mp.Process(target=senproc.sensor_proc, args=(sensor_que,))
-    sensor_p.daemon = True
+    # sensor_p = mp.Process(target=senproc.sensor_proc, args=(sensor_que,))
+    # sensor_p.daemon = True
 
     thermal_process(IR_IP,sound_q,storage_q,action_q,sensor_que,raw_img_q, sock)
     sock.close()
-
+    clean_proc.terminate()
+    sav_proc.terminate()
+    rgb_proc.terminate()
+    sq.terminate()
+    guip.terminate()
+    raw_img_proc.terminate()

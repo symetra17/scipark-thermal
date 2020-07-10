@@ -96,7 +96,7 @@ class insight_thermal_analyzer(object):
         print('Completed')
         self.img_q=img_q
         self.dll.GetCorrectedTemp.restype = c_float
-        self.load_temp_map() #there is problme with the map
+        self.load_temp_map() 
         self.init_cam_vari(ip,port)
         self.load_app_settings()
         self.fid = open(NMAP_FILE, "r+")
@@ -211,7 +211,6 @@ class insight_thermal_analyzer(object):
     #         else:
     #             cv2.waitKey(10)
 
-    #there are some value missing from the dictinary !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     def load_temp_map(self):
         fname=open("table_for_temp_to_thd.txt")
         dict_of_temp=fname.read()
@@ -402,7 +401,7 @@ class insight_thermal_analyzer(object):
             print("Could not connect thermal camera",val)
             return
         self.requestCameraData()
-        #self.setNUC()
+        self.setNUC()
         # Function GetIRImages got to be called twice before it would not return error code
         self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
         #self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
@@ -410,12 +409,25 @@ class insight_thermal_analyzer(object):
             try:
                 self.processing()
                 if self.exit_all:
+                    self.disconnect()
                     break
             except Exception as e:
                 print(e)
                 print("Thermal ccamera comm reset required", str(datetime.now()))
                 break
-
+    
+    def disconnect(self):
+        if self.mHandle.value != None:
+            self.dll.CloseConnect.restype = c_short
+            self.dll.CloseConnect.argtypes = [POINTER(wintypes.HANDLE), c_uint]
+            try:
+                err = self.dll.CloseConnect(byref(self.mHandle), self.keepAlive)
+                if err == 1:
+                    return err
+            except Exception as e:
+                print("Exception in close connection ", e.message)
+        return None
+    
     def get_raw_image(self):
         NAVG = 1
         self.acm32.fill(0)
@@ -574,48 +586,14 @@ class insight_thermal_analyzer(object):
                     self.save_detection_offset()
                 elif action[0] == 'done':
                     self.ir_full=False
-                # elif action=='thd+':
-                #     self.ir_full=True
-                # #    self.thd+=30
-                # #    self.save_thd()
-                # elif action=='thd-':
-                #     self.ir_full=False
-                # #    self.thd-=30
-                # #    self.save_thd()
-                # elif action=='offset+':
-                #     self.detection_offset_x += 1
-                #     self.save_detection_offset()
-                # #    self.save_emissivity()
-                # elif action=='offset-':
-                #     self.detection_offset_x -= 1
-                #     self.save_detection_offset()
-                # #    self.save_emissivity()
-                # elif action=='refl':
-                #     if self.USE_BBODY:
-                #         self.ref_pair.pick_l = True
-                #         self.ir_full=True
-                #         self.ref_pair.save_temp_l(float(action[1]))
-                # elif action=='refh':
-                #     if self.USE_BBODY:
-                #         self.ref_pair.pick_h = True
-                #         self.ir_full=True
-                #         self.ref_pair.save_temp_h(float(action[1]))
-                elif action=='quit':
-                    #self.exit_all=True
-                    if self.setting_proc.is_alive():
-                        self.setting_proc.terminate()
                 elif action=='ref head':
                     self.ref_pair.pick_head()
                 elif action=='ref head tape':
                     self.ref_pair.pick_head_tape()
-                elif action=='BW':
-                    self.COLOR_STYLE=action
-                elif action=='JET':
-                    self.COLOR_STYLE=action
-                elif action=='HSV':
-                    self.COLOR_STYLE=action
-                elif action=='RED':
-                    self.COLOR_STYLE=action
+                elif action[0]=='BW':
+                    self.COLOR_STYLE=action[0]
+                elif action[0]=='JET':
+                    self.COLOR_STYLE=action[0]
                                     
             if not self.sen_q.empty():
                 temp_c = self.sen_q.get()
@@ -652,8 +630,6 @@ class insight_thermal_analyzer(object):
                 width = int(box[2]*width_ratio)
                 height = int(box[3]*height_ratio)
                 box_for_IR=[left,top,width,height]
-                #print("box: ",box)
-                #print("IR: ",box_for_IR)
                 IR_boxes.append(box_for_IR)
             contours_list, max_t_list = self.thresholding(IR_boxes)
             self.ref_pair.update(self.np_img_16)
@@ -665,7 +641,7 @@ class insight_thermal_analyzer(object):
             fmax = np.percentile(i_img, 99.9)+50
             f_img = np.interp(f_img, [fmin,fmax],[0.0,255.0])
             im_8 = f_img.astype(uint8)
-            self.tmax = self.correct_temp(self.np_img_16.max())
+            #self.tmax = self.correct_temp(self.np_img_16.max())  # skip for the reason of fps optimization
             if self.COLOR_STYLE=='BW':
                 im_8 = cv2.applyColorMap(im_8, cv2.COLORMAP_BONE)
             elif self.COLOR_STYLE=='JET':
@@ -728,15 +704,16 @@ class insight_thermal_analyzer(object):
 
             self.scr_buff[:,0:SCR_WIDTH//2,:]= im_8
             self.scr_buff[:,SCR_WIDTH//2:,:] = self.src_rgb
-            
-            reading = self.correct_temp(self.np_img_16[self.cursor])
-            x1 = self.cursor_textpos[0]-3
-            y1 = self.cursor_textpos[1]-15
-            x2 = self.cursor_textpos[0]+46
-            y2 = self.cursor_textpos[1]+5
-            cv2.rectangle(self.scr_buff, (x1,y1), (x2, y2), (50,50,50), cv2.FILLED)
-            cv2.putText(self.scr_buff, '%.2f'%reading, self.cursor_textpos, 
-                    self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
+
+            if not self.ir_full:
+                reading = self.correct_temp(self.np_img_16[self.cursor])
+                x1 = self.cursor_textpos[0]-3
+                y1 = self.cursor_textpos[1]-15
+                x2 = self.cursor_textpos[0]+46
+                y2 = self.cursor_textpos[1]+5
+                cv2.rectangle(self.scr_buff, (x1,y1), (x2, y2), (50,50,50), cv2.FILLED)
+                cv2.putText(self.scr_buff, '%.2f'%reading, self.cursor_textpos, 
+                            self.font, 0.5, (255,255,255), 1, cv2.LINE_AA)
 
             ts_str = datetime.now().strftime("%y%m%d-%H%M%S-%f")[:-3]
             fn = opjoin('record', ts_str + '.jpg')
@@ -861,9 +838,15 @@ class insight_thermal_analyzer(object):
         if event == 0:
           if not self.show_mask:
             try:
-                xcoo = int(x)
-                ycoo = int(y)
-                self.cursor_textpos = (xcoo+10, ycoo-5)
+                xcoo = 2*int(xratio*self.np_img_16.shape[1])
+                if xcoo >= self.np_img_16.shape[1]:
+                    xcoo = self.np_img_16.shape[1]-1
+                ycoo = int(yratio*self.np_img_16.shape[0])
+                self.cursor = (ycoo, xcoo)
+                if xcoo < 300:
+                    self.cursor_textpos = (x+5, y-10)
+                else:
+                    self.cursor_textpos = (x-50, y-10)
             except:
                 pass
         if event == 1:

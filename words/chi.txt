@@ -1,0 +1,43 @@
+{   'cover_txt'  : '配置頁面',
+    'PW_txt'     : '密碼: ',
+    'msg_txt'    : '錯誤: 密碼不正確!!',
+
+    'font_style' : 'Microsoft JhengHei',
+
+    'btn_file'   : 'tc.buttons',
+
+    'temp_txt'   : '溫度設置',
+    'thd_txt'    : '門檻值 (30°C-40°C): ',
+    'thd2_txt'   : 'Threshold: ',
+    'emv_txt'    : '放射率 (0.90 - 1.00): ',
+    'unit_txt'   : '單位: ',
+
+    'bb_txt'     : '黑體參考值',
+    'high_txt'   : '高溫 (30°C - 45°C): ',
+    'low_txt'    : '低溫 (30°C - 45°C): ',
+    'high_emv_txt'   : '放射率 (0.90 - 1.00): ',
+    'low_emv_txt'    : '放射率 (0.90 - 1.00): ',
+    
+    'frame_txt'  : '偵測框對齊',
+    'x_txt'      : '橫軸 (左/右):',
+    'y_txt'      : '緃軸 (上/下):',
+    
+    'msk_txt'    : '遮罩設置',
+    'edit_txt'   : '編輯中',
+    'saved_txt'  : '已保存',
+    
+    'blur_txt'   : '臉部模糊',
+    'on_txt'     : '開啟',
+    'off_txt'    : '關閉',
+
+    'f_msk_txt'  : 'Facial Mask Detection',
+    
+    'tone_txt'   : '熱感影像',
+    'mono_txt'   : '黑白',
+    'rgb_txt'    : '偽彩',
+
+    'sta_txt'    : '狀態:',
+
+    'tone2_txt'  : '顯示色彩模式:',
+    
+    'record_txt' : '警報記錄'}

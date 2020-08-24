@@ -1,0 +1,43 @@
+{   'cover_txt'  : 'AIBTSS Settings',
+    'PW_txt'     : 'Password: ',
+    'msg_txt'    : 'ERROR: Invalid Password !!',
+
+    'font_style' : 'Calibri',
+
+    'btn_file'   : 'en.buttons',
+
+    'temp_txt'   : 'Temperature Setting',
+    'thd_txt'    : 'Threshold (30°C-40°C): ',
+    'thd2_txt'   : 'Threshold: ',
+    'emv_txt'    : 'Emissivity (0.90 - 1.00): ',
+    'unit_txt'   : 'Unit: ',
+
+    'bb_txt'     : 'Black Body References',
+    'high_txt'   : 'High (30°C - 45°C): ',
+    'low_txt'    : 'Low (30°C - 45°C): ',
+    'high_emv_txt'   : 'Emissivity (0.90 - 1.00): ',
+    'low_emv_txt'    : 'Emissivity (0.90 - 1.00): ',
+    
+    'frame_txt'  : 'Frame Alignment',
+    'x_txt'      : 'X-axis (Left/Right):',
+    'y_txt'      : 'Y-axis (Up/Down):',
+    
+    'msk_txt'    : 'Masking Setting',
+    'edit_txt'   : 'Editting',
+    'saved_txt'  : 'Saved',
+    
+    'blur_txt'   : 'Face blurring',
+    'on_txt'     : 'On',
+    'off_txt'    : 'Off',
+
+    'f_msk_txt'  : 'Facial Mask Detection',
+    
+    'tone_txt'   : 'Thermal Image',
+    'mono_txt'   : 'Monochrome',
+    'rgb_txt'    : 'Pseudo',
+
+    'sta_txt'    : 'Status:',    
+
+    'tone2_txt'    : 'Colour Mode:',
+    
+    'record_txt' : 'Alert Records'}

@@ -124,8 +124,8 @@ class insight_thermal_analyzer(object):
                                                 c_ushort]
     
     def load_offset_of_camera(self):
-        fname_x='camera_offset_x.cfg'
-        fname_y='camera_offset_y.cfg'
+        fname_x=opjoin('cfg','camera_offset_x.cfg')
+        fname_y=opjoin('cfg','camera_offset_y.cfg')
         if os.path.exists(fname_x):
             try:
                 fid=open(fname_x,'r')
@@ -288,12 +288,14 @@ class insight_thermal_analyzer(object):
         return 0
 
     def save_camera_offset_x(self):
-        fid=open('camera_offset_x.cfg','w')
+        path=opjoin('cfg','camera_offset_x.cfg')
+        fid=open(path,'w')
         fid.write('%d'%self.offset_x)
         fid.close()
 
     def save_camera_offset_y(self):
-        fid=open('camera_offset_y.cfg','w')
+        path=opjoin('cfg','camera_offset_y.cfg')
+        fid=open(path,'w')
         fid.write('%d'%self.offset_y)
         fid.close()
     

@@ -17,7 +17,7 @@ def cleanup(arg):
 def remove_oldest_video(nfile):
     print('Removing old video records')
     cwd = os.getcwd()
-    files = glob(os.path.join(cwd, 'record','*.mp4'))
+    files = glob(os.path.join(cwd,'record','Photo','*.mp4'))
     files.sort(key=os.path.getmtime)
     print('Number of files', len(files))
     print(files[0])
@@ -27,7 +27,7 @@ def remove_oldest_video(nfile):
 
 def cleanup_by_date(day):
     cwd = os.getcwd()
-    files = glob(os.path.join(cwd, 'record','*.mp4'))
+    files = glob(os.path.join(cwd, 'record','Photo','*.mp4'))
     for f in files:
         tf = os.path.getmtime(f)
         if (time() - tf)/(60*60*24) > day:
@@ -37,10 +37,11 @@ def cleanup_by_date(day):
 
 def generate_video():
   cwd = os.getcwd()
-  files = glob(os.path.join(cwd, 'record', '*.jpg'))
+  files = glob(os.path.join(cwd, 'record', 'Photo', '*.jpg'))
   files.sort(key=os.path.getmtime)
-  MAX_LEN = 2000
+  MAX_LEN = 200
   for loop in range(5):
+    print(len(files))
     if len(files) > MAX_LEN:
         batch = files[0:MAX_LEN]
         del files[0:MAX_LEN]

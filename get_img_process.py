@@ -8,7 +8,10 @@ import time
 import queue
 import threading
 
-THERMAL_IP = "192.168.88.253"
+
+NMAP_FILE = "sharedmem.dat"
+RGB_SHAPE = (1080,1920,3)
+RGB_NPIX = RGB_SHAPE[0] * RGB_SHAPE[1] * RGB_SHAPE[2]
 COX_MODEL = 'CG'
 if COX_MODEL=='CG':
     THERMAL_WIDTH = 640
@@ -95,26 +98,29 @@ class get_image_class(object):
         # Function GetIRImages got to be called twice before it would not return error code
         self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
         self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
-        # while (self.mHandle != -1):
-        #     try:
-        #         self.processing()
-        #     except Exception as e:
-        #         print(e)
-        #         print("Thermal ccamera comm reset required", str(datetime.now()))
-        #         break
         
     def get_raw_image(self):
+        NAVG = 1
         self.acm32.fill(0)
-        val = self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
-        if val == -100:
-            return -1
-        elif val != 1:
-            raise Exception("Get IR Images fail errcode=%d"%(val))
-        self.np_img_16 = self.m16.astype(np.uint16)
-        return self.m16,self.np_img_16
+        for p in range(NAVG):
+            val = self.dll.GetIRImages(self.mHandle, byref(self.keepAlive), byref(self.camData))
+            if val == -100:
+                return -1
+            elif val != 1:
+                raise Exception("Get IR Images fail errcode=%d"%(val))
+            self.acm32+=self.m16
+        self.acm32=self.acm32//NAVG
+        self.np_img_16 = self.acm32.astype(np.uint16)
+        f_img = self.np_img_16.astype(np.float)
+        i_img = cv2.resize(f_img,(f_img.shape[1]//2,f_img.shape[0]//2),interpolation=0)
+        fmin = np.percentile(i_img, 0.1)
+        fmax = np.percentile(i_img, 99.9)+50
+        f_img = np.interp(f_img, [fmin,fmax],[0.0,255.0])
+        im_8 = f_img.astype(np.uint8)
+        return self.np_img_16,im_8
 
-def get_img(q):
-    cox=get_image_class(THERMAL_IP,"15001")
+def get_img(q,ir_ip):
+    cox=get_image_class(ir_ip,"15001")
     cox.connect()
     while True:
         img=cox.get_raw_image()
@@ -123,11 +129,12 @@ def get_img(q):
     
 if __name__ == '__main__':
     disp_q=queue.Queue(3)
-    proc=threading.Thread(target=get_img,args=(disp_q, ))
+    THERMAL_IP = "192.168.88.253"
+    proc=threading.Thread(target=get_img,args=(disp_q,THERMAL_IP))
     proc.start()
     cv2.namedWindow("title",cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
     while True:
         if not disp_q.empty():
-            img=disp_q.get()
-            cv2.imshow("title",img)
+            a=disp_q.get()
+            cv2.imshow("title",a[3])
             k=cv2.waitKey(10)
